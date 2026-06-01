@@ -14,11 +14,11 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 
 | Account | Email sender | Type |
 |---|---|---|
-| DBS Savings Plus | paylah.alert@dbs.com | PayLah! outgoing payments |
-| DBS Savings Plus | ibanking.alert@dbs.com | PayNow incoming transfers |
-| Citi Cash Back Plus Credit | alerts@citibank.com.sg | Credit card charges |
-| Trust Credit | from_us@trustbank.sg | Local & overseas transactions |
-| Maribank Credit | notifications@maribank.sg | Credit card charges |
+| DBS Savings Account | paylah.alert@dbs.com | PayLah! outgoing payments |
+| DBS Savings Account | ibanking.alert@dbs.com | PayNow incoming transfers |
+| Citibank Credit Card | alerts@citibank.com.sg | Credit card charges |
+| Trust Credit Card | from_us@trustbank.sg | Local & overseas transactions |
+| Maribank Credit Card | notifications@maribank.sg | Credit card charges |
 
 ## Setup
 
