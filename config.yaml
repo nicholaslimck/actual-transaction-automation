@@ -1,0 +1,33 @@
+# Bank Transaction Automation - Configuration
+# Copy to config.local.yaml and fill in your details
+
+email:
+  imap_server: "imap.gmail.com"
+  imap_port: 993
+  email: "your-email@gmail.com"
+  app_password: ""  # Gmail app password
+
+actual:
+  server_url: ""       # e.g. http://192.168.1.100:5006
+  password: ""         # Actual server password
+  budget_id: ""        # Budget UUID from Settings > Advanced
+
+# Each entry maps a bank email sender to an Actual account ID.
+# Multiple entries can share the same bank or sender for multi-account support.
+accounts:
+  - name: "DBS Savings Plus"
+    bank: dbs
+    email_sender: "paylah.alert@dbs.com"
+    actual_account_id: ""
+  - name: "Citi Cash Back Plus Credit"
+    bank: citibank
+    email_sender: "alerts@citibank.com.sg"
+    actual_account_id: ""
+  - name: "Trust Credit"
+    bank: trust
+    email_sender: "from_us@trustbank.sg"
+    actual_account_id: ""
+  - name: "Maribank Credit"
+    bank: maribank
+    email_sender: "notifications@maribank.sg"
+    actual_account_id: ""
