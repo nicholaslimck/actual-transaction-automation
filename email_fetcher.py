@@ -15,6 +15,7 @@ class EmailFetcher:
         self.port = config["email"]["imap_port"]
         self.email = config["email"]["email"]
         self.password = config["email"]["app_password"]
+        self.unseen_only = config["email"].get("unseen_only", True)
         self.conn = None
 
     def connect(self):
@@ -41,8 +42,9 @@ class EmailFetcher:
         if not self.conn:
             raise RuntimeError("Not connected. Call connect() first.")
 
-        # Search for unseen or recent emails from this sender
-        search_criteria = f'(FROM "{sender}" SINCE {self._date_days_ago(lookback_days)})'
+        # Build search criteria
+        unseen_flag = "UNSEEN " if self.unseen_only else ""
+        search_criteria = f'({unseen_flag}FROM "{sender}" SINCE {self._date_days_ago(lookback_days)})'
         status, msg_ids = self.conn.search(None, search_criteria)
         if status != "OK" or not msg_ids[0]:
             return []

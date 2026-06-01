@@ -20,6 +20,18 @@ class MaribankParser(BaseParser):
     Subject: likely "Transaction Notification" or similar
     """
 
+    # Known non-transaction subject keywords — skip early
+    _NON_TX_SUBJECTS = [
+        "email address has been updated",
+        "welcome to maribank",
+        "password",
+        "otp",
+        "login",
+        "security",
+        "registered",
+        "updated successfully",
+    ]
+
     @property
     def bank_name(self) -> str:
         return "MariBank"
@@ -30,6 +42,11 @@ class MaribankParser(BaseParser):
 
     def parse(self, email_data: dict) -> list[dict]:
         subject = email_data.get("subject", "")
+        # Early-exit for non-transaction emails
+        subject_lower = subject.lower()
+        if any(kw in subject_lower for kw in self._NON_TX_SUBJECTS):
+            logger.debug("Skipping non-transaction MariBank email: %s", subject)
+            return []
         text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
         msg_id = email_data.get("message_id", "")
 
