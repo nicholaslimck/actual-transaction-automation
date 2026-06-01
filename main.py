@@ -4,8 +4,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from email_fetcher import EmailFetcher
 from actual_importer import ActualImporter
 from bank_parsers.registry import get_parser
+from logging_config import setup_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("main")
 
 def load_config(path):
@@ -65,9 +65,12 @@ def main():
     p.add_argument("--config", default="config.local.yaml")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--lookback", type=int, default=3)
+    p.add_argument("--verbose", "-v", action="store_true")
     args = p.parse_args()
+    log_file = setup_logging(verbose=args.verbose)
     config = load_config(args.config)
     config["email"]["lookback_days"] = args.lookback
+    logger.info("Starting bank automation (log: %s)", log_file)
     run_import(config, dry_run=args.dry_run)
 
 if __name__ == "__main__":
