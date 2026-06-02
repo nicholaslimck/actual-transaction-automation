@@ -67,7 +67,7 @@ class BaseParser(ABC):
         try:
             return int(round(float(cleaned) * 100))
         except (ValueError, TypeError):
-            return 0
+            raise ValueError(f"Cannot convert amount to cents: {amount_str!r}")
 
     @staticmethod
     def parse_date(date_str: str, email_date=None) -> str:
@@ -106,6 +106,5 @@ class BaseParser(ABC):
             except ValueError:
                 continue
 
-        # If all fails, return today
-        logger.warning("Could not parse date '%s', using today", date_str)
-        return datetime.now().strftime("%Y-%m-%d")
+        # If all formats fail, raise rather than silently importing a wrong date
+        raise ValueError(f"Cannot parse date: {date_str!r}")

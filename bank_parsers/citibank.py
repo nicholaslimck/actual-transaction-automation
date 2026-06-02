@@ -1,5 +1,6 @@
 """Parser for Citibank Singapore transaction alert emails."""
 from . import BaseParser
+import hashlib
 import re
 import logging
 
@@ -27,6 +28,11 @@ class CitibankParser(BaseParser):
     Amount is outflow (negative). Date format: dd/mm/yy.
     Merchant from "Transaction details" field.
     """
+
+    @staticmethod
+    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
+        raw = f"{date}|{amount}|{payee}"
+        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
     @property
     def bank_name(self) -> str:
@@ -111,11 +117,13 @@ class CitibankParser(BaseParser):
             if account_m:
                 notes_parts.append(f"*{account_m.group(1)}")
 
+            parsed_date = self.parse_date(date_str, email_date)
+            amount_cents = -self.to_cents(amount_str)
             return {
-                "date": self.parse_date(date_str, email_date),
-                "amount": -self.to_cents(amount_str),  # negative = charge
+                "date": parsed_date,
+                "amount": amount_cents,  # negative = charge
                 "payee_name": merchant,
-                "imported_id": msg_id,
+                "imported_id": self._content_id("citi", parsed_date, amount_cents, merchant),
                 "notes": " | ".join(notes_parts),
             }
 

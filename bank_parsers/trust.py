@@ -1,6 +1,7 @@
 """Parser for Trust Bank Singapore transaction alert emails."""
 from . import BaseParser
 from .fx import get_rate_or_fallback
+import hashlib
 import re
 import logging
 
@@ -39,11 +40,14 @@ class TrustParser(BaseParser):
             text, re.IGNORECASE
         )
         if m:
+            parsed_date = self.parse_date(m.group(3).strip())
+            amount_cents = -self.to_cents(m.group(1))
+            merchant = self._clean_merchant(m.group(2))
             return {
-                "date": self.parse_date(m.group(3).strip()),
-                "amount": -self.to_cents(m.group(1)),
-                "payee_name": self._clean_merchant(m.group(2)),
-                "imported_id": msg_id,
+                "date": parsed_date,
+                "amount": amount_cents,
+                "payee_name": merchant,
+                "imported_id": self._content_id("trust-local", parsed_date, amount_cents, merchant),
                 "notes": m.group(4).strip(),
             }
         return None
@@ -69,14 +73,20 @@ class TrustParser(BaseParser):
                 sgd_cents = amount_cents
                 notes = f"{card_info} | {cur}{m.group(2)} (no rate)"
 
+            parsed_date = self.parse_date(m.group(5).strip())
             return {
-                "date": self.parse_date(m.group(5).strip()),
+                "date": parsed_date,
                 "amount": -sgd_cents,
                 "payee_name": merchant,
-                "imported_id": msg_id,
+                "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant),
                 "notes": notes,
             }
         return None
+
+    @staticmethod
+    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
+        raw = f"{date}|{amount}|{payee}"
+        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
     @staticmethod
     def _clean_merchant(raw):

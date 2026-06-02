@@ -81,8 +81,8 @@ python3 main.py
 # Scan further back (e.g. 60 days)
 python3 main.py --lookback 60
 
-# Debug a specific bank parser
-python3 main.py --test-parser trust
+# Test a specific bank parser (pipe a JSON email dict via stdin)
+echo '{"subject":"...","body_text":"...","body_html":"","date":"","message_id":"<id>","email_date":null,"raw_id":"1"}' | python3 main.py --test-parser trust
 ```
 
 ## Adding a new bank

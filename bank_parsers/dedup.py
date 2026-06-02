@@ -64,15 +64,12 @@ class DedupCache:
         """Return the subset of imported_ids already known for this account."""
         if not imported_ids or not self._conn:
             return set()
-        known: set[str] = set()
-        for iid in imported_ids:
-            row = self._conn.execute(
-                "SELECT 1 FROM processed WHERE imported_id = ? AND account_id = ?",
-                (iid, account_id),
-            ).fetchone()
-            if row:
-                known.add(iid)
-        return known
+        placeholders = ",".join("?" * len(imported_ids))
+        rows = self._conn.execute(
+            f"SELECT imported_id FROM processed WHERE account_id = ? AND imported_id IN ({placeholders})",
+            [account_id, *imported_ids],
+        ).fetchall()
+        return {row[0] for row in rows}
 
     def record(self, account_id: str, imported_ids: list[str]):
         """Mark imported_ids as processed for this account."""

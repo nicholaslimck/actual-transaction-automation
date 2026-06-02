@@ -5,9 +5,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Add npm global bin to PATH for subprocess calls
 _NPM_BIN = os.path.expanduser("~/.npm-global/bin")
-os.environ.setdefault("PATH", f"{_NPM_BIN}:{os.environ.get('PATH', '')}")
 
 ACTUAL_CLI = os.path.join(_NPM_BIN, "actual")
 
@@ -27,7 +25,7 @@ class ActualImporter:
             result = self._run(["budgets", "list"])
             if result.returncode == 0:
                 data = json.loads(result.stdout)
-                logger.info("Connected to Actual. Budgets: %s", data)
+                logger.debug("Connected to Actual. Budgets: %s", data)
                 return True
             else:
                 logger.error("Connection failed: %s", result.stderr)
@@ -84,6 +82,7 @@ class ActualImporter:
 
     def _run(self, args: list[str], input_data: str | None = None) -> subprocess.CompletedProcess:
         env = os.environ.copy()
+        env["PATH"] = f"{_NPM_BIN}:{env.get('PATH', '')}"
         env["ACTUAL_SERVER_URL"] = self.server_url
         env["ACTUAL_PASSWORD"] = self.password
         if self.budget_id:

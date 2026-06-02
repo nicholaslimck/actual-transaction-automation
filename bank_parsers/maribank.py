@@ -1,5 +1,6 @@
 """Parser for MariBank transaction alert emails."""
 from . import BaseParser
+import hashlib
 import re
 import logging
 
@@ -32,13 +33,18 @@ class MaribankParser(BaseParser):
         "updated successfully",
     ]
 
+    @staticmethod
+    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
+        raw = f"{date}|{amount}|{payee}"
+        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
+
     @property
     def bank_name(self) -> str:
         return "MariBank"
 
     @property
     def sender_pattern(self) -> str:
-        return r"noreply@maribank\.sg|maribank\.sg|maribank"
+        return r"notifications@maribank\.sg|maribank\.sg"
 
     def parse(self, email_data: dict) -> list[dict]:
         subject = email_data.get("subject", "")
@@ -90,11 +96,13 @@ class MaribankParser(BaseParser):
             if card_m:
                 card_note = f"MariCard *{card_m.group(1)}"
 
+            parsed_date = self.parse_date(date_str)
+            amount_cents = -self.to_cents(amount_str)
             return {
-                "date": self.parse_date(date_str),
-                "amount": -self.to_cents(amount_str),
+                "date": parsed_date,
+                "amount": amount_cents,
                 "payee_name": merchant,
-                "imported_id": msg_id,
+                "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant),
                 "notes": card_note,
             }
 
@@ -104,11 +112,14 @@ class MaribankParser(BaseParser):
             text, re.IGNORECASE
         )
         if fallback and date_m and amount_m:
+            parsed_date = self.parse_date(date_m.group(1).strip())
+            amount_cents = -self.to_cents(amount_m.group(1))
+            payee = fallback.group(1).strip().rstrip(".")
             return {
-                "date": self.parse_date(date_m.group(1).strip()),
-                "amount": -self.to_cents(amount_m.group(1)),
-                "payee_name": fallback.group(1).strip().rstrip("."),
-                "imported_id": msg_id,
+                "date": parsed_date,
+                "amount": amount_cents,
+                "payee_name": payee,
+                "imported_id": self._content_id("mari", parsed_date, amount_cents, payee),
                 "notes": "",
             }
 
