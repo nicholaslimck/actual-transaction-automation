@@ -6,7 +6,7 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 
 ## How it works
 
-1. **Gmail IMAP polling** -- checks for unread transaction alert emails every 5 minutes
+1. **Gmail IMAP polling** -- checks for unread transaction alert emails (run once per invocation)
 2. **Per-bank parsers** -- extracts date, amount, merchant, and card info from each bank's email format
 3. **Actual Budget CLI** -- imports via `@actual-app/cli` with deduplication via `imported_id`
 
@@ -25,7 +25,7 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 ### 1. Prerequisites
 
 - Node.js v22+ (`actual` CLI)
-- Python 3.13+
+- Python 3.13+ with [uv](https://docs.astral.sh/uv/)
 - Gmail account with [app password](https://myaccount.google.com/apppasswords)
 - Self-hosted Actual Budget instance
 
@@ -33,7 +33,7 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 
 ```bash
 npm install -g @actual-app/cli
-pip install PyYAML
+uv sync
 ```
 
 ### 3. Configure
@@ -110,5 +110,6 @@ Trust Bank overseas transactions are converted to SGD using live exchange rates 
 │   ├── trust.py            # Trust Bank transaction alerts
 │   └── maribank.py         # MariBank transaction notifications
 ├── config.yaml             # Configuration template
-└── config.local.yaml       # Local credentials (gitignored)
+├── config.local.yaml       # Local credentials (gitignored)
+└── tests/                  # pytest suite (uv run pytest -v)
 ```
