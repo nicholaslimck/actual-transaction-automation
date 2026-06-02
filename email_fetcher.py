@@ -52,7 +52,7 @@ class EmailFetcher:
 
         messages = []
         for mid in msg_ids[0].split():
-            status, data = self.conn.fetch(mid, "(RFC822)")
+            status, data = self.conn.fetch(mid, "(BODY.PEEK[])")
             if status != "OK":
                 continue
             raw_email = data[0][1]
