@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance to Claude Code (claude.ai/code) for working in this repo.
 
 ## Commands
 
@@ -32,19 +32,19 @@ uv run pytest -v
 uv run pytest tests/test_trust.py -v   # single file
 ```
 
-Parser logic can also be exercised manually via `--dry-run` and `--test-parser <bank>`.
+Parser logic: exercise via `--dry-run` and `--test-parser <bank>`.
 
 ## Architecture
 
-The pipeline runs once per invocation (no daemon):
+Pipeline runs once per invocation (no daemon):
 
 1. `main.py` loads config, groups accounts by `email_sender`
 2. `EmailFetcher` (Gmail IMAP) fetches UNSEEN emails from each sender within `lookback_days`
-3. `bank_parsers/registry.py` returns the matching parser for each sender
-4. Parser extracts transaction dicts; overseas amounts are converted to SGD via `bank_parsers/fx.py`
-5. `DedupCache` (SQLite at `data/dedup.db`) filters out already-imported `imported_id`s
-6. `ActualImporter` shells out to the `actual` CLI, passing JSON via stdin; env vars carry credentials
-7. Emails are marked SEEN only after a successful import attempt
+3. `bank_parsers/registry.py` returns matching parser for each sender
+4. Parser extracts transaction dicts; overseas amounts converted to SGD via `bank_parsers/fx.py`
+5. `DedupCache` (SQLite at `data/dedup.db`) filters already-imported `imported_id`s
+6. `ActualImporter` shells out to `actual` CLI, passing JSON via stdin; env vars carry credentials
+7. Emails marked SEEN only after successful import attempt
 
 **Transaction dict schema** (defined in `bank_parsers/__init__.py::BaseParser.parse`):
 ```python
@@ -71,12 +71,12 @@ Key helpers on `BaseParser`:
 
 ## Config
 
-`config.yaml` is the committed template. `config.local.yaml` (gitignored) holds real credentials. The `--config` flag overrides the path.
+`config.yaml` committed template. `config.local.yaml` (gitignored) holds real credentials. `--config` flag overrides path.
 
-Multiple accounts can share the same `email_sender` (e.g. DBS PayLah + ibanking). The parser runs once per sender; each matching account gets the same parsed transactions.
+Multiple accounts can share same `email_sender` (e.g. DBS PayLah + ibanking). Parser runs once per sender; each matching account gets same parsed transactions.
 
-`email.unseen_only: true` (default) — set to `false` to reprocess already-read emails (useful for backfills with `--lookback`).
+`email.unseen_only: true` (default) — set `false` to reprocess read emails (useful for backfills with `--lookback`).
 
 ## Logs
 
-Rotating log at `logs/bank-automation.log` (DEBUG). Console shows INFO by default; `--verbose` adds DEBUG there too.
+Rotating log at `logs/bank-automation.log` (DEBUG). Console: INFO by default; `--verbose` adds DEBUG.
