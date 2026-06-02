@@ -8,7 +8,8 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 
 1. **Gmail IMAP polling** -- checks for unread transaction alert emails (run once per invocation)
 2. **Per-bank parsers** -- extracts date, amount, merchant, and card info from each bank's email format
-3. **Actual Budget CLI** -- imports via `@actual-app/cli` with deduplication via `imported_id`
+3. **SQLite dedup cache** -- filters out already-imported transactions by content-hash ID (`data/dedup.db`)
+4. **Actual Budget CLI** -- imports via `@actual-app/cli`; emails marked read only after successful import
 
 ## Accounts configured
 
@@ -87,9 +88,15 @@ echo '{"subject":"...","body_text":"...","body_html":"","date":"","message_id":"
 
 ## Adding a new bank
 
-1. Create a parser in `bank_parsers/` extending `BaseParser`
-2. Register it in `bank_parsers/registry.py`
-3. Add an account entry in `config.local.yaml`
+1. Create `bank_parsers/<bank>.py` subclassing `BaseParser`
+2. Set `bank_name` and `sender_pattern` (regex against the From address)
+3. Implement `_parse_alert(self, text, email_data) -> dict | None` — return a transaction dict or `None` if unrecognised
+4. Register an instance in `bank_parsers/registry.py`
+5. Add an account entry in `config.local.yaml`
+
+Transaction dict fields: `date` (YYYY-MM-DD), `amount` (cents, negative = outflow), `payee_name`, `imported_id`, `notes` (optional).
+
+Use `self._content_id(prefix, date, amount, payee)` for a stable, content-hash `imported_id`.
 
 ## Overseas transactions
 
@@ -98,17 +105,20 @@ Trust Bank overseas transactions are converted to SGD using live exchange rates 
 ## Project structure
 
 ```
-├── main.py                 # Entry point
+├── main.py                 # Entry point; process_sender + run_import orchestration
 ├── email_fetcher.py        # Gmail IMAP connection
 ├── actual_importer.py      # Actual Budget CLI wrapper
+├── logging_config.py       # Rotating file + console logging setup
 ├── bank_parsers/
-│   ├── __init__.py         # Base parser class
-│   ├── registry.py         # Parser auto-discovery
-│   ├── fx.py               # Live FX rates module
+│   ├── __init__.py         # BaseParser abstract class (helpers: to_cents, parse_date, _content_id)
+│   ├── registry.py         # Parser registry
+│   ├── dedup.py            # SQLite dedup cache
+│   ├── fx.py               # Live FX rates (open.er-api.com)
 │   ├── dbs.py              # DBS PayLah! and ibanking alerts
 │   ├── citibank.py         # Citibank credit card alerts
 │   ├── trust.py            # Trust Bank transaction alerts
 │   └── maribank.py         # MariBank transaction notifications
+├── data/                   # Runtime data (dedup.db) — gitignored
 ├── config.yaml             # Configuration template
 ├── config.local.yaml       # Local credentials (gitignored)
 └── tests/                  # pytest suite (uv run pytest -v)
