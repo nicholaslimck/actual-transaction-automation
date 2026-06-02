@@ -32,7 +32,7 @@ class TrustParser(BaseParser):
     def _parse_local(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent SGD ([0-9,.]+) at (.+?) on "
-            r"(\d{1,2} [A-Za-z]+ \d{4}) \d{2}:\d{2}SGT with (.+?)(?:\.|\s*$)",
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT with (.+?)(?:\.|\s*$)",
             text, re.IGNORECASE
         )
         if m:
@@ -43,15 +43,15 @@ class TrustParser(BaseParser):
                 "date": parsed_date,
                 "amount": amount_cents,
                 "payee_name": merchant,
-                "imported_id": self._content_id("trust-local", parsed_date, amount_cents, merchant),
-                "notes": m.group(4).strip(),
+                "imported_id": self._content_id("trust-local", parsed_date, amount_cents, merchant, m.group(4)),
+                "notes": m.group(5).strip(),
             }
         return None
 
     def _parse_overseas(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent ([A-Z]{3}) ([0-9,.]+) using (.+?) at (.+?) on "
-            r"(\d{1,2} [A-Za-z]+ \d{4}) \d{2}:\d{2}SGT",
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT",
             text, re.IGNORECASE
         )
         if m:
@@ -67,11 +67,12 @@ class TrustParser(BaseParser):
                 notes = f"{card_info} | {cur}{m.group(2)} (no rate)"
 
             parsed_date = self.parse_date(m.group(5).strip())
+            txn_time = m.group(6)
             return {
                 "date": parsed_date,
                 "amount": -sgd_cents,
                 "payee_name": merchant,
-                "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant),
+                "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant, txn_time),
                 "notes": notes,
             }
         return None

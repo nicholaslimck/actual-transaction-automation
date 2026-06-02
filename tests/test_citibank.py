@@ -103,7 +103,31 @@ def test_different_txn_produces_different_imported_id():
 
 
 # ---------------------------------------------------------------------------
-# Test 4 — Unparseable body returns empty list
+# Test 4 — Same date/amount/payee at different times → different imported_id
+# ---------------------------------------------------------------------------
+
+CITI_BODY_SAME_BUT_LATER = """\
+Dear Customer,
+We would like to inform you that there is a charge made on
+your Citi Cash Back+ Card:
+
+Account Number           : XXXX-XXXX-XXXX-0000
+Transaction date         : 28/05/26
+Transaction time         : 19:45:00
+Transaction amount       : SGD2100.00
+Transaction  details     : SAMPLE MERCHANT
+"""
+
+
+def test_same_payee_amount_different_time_produces_different_id():
+    """Two purchases: same day, amount, merchant but different time must not collide."""
+    txns_a = parser.parse(make_email(body_text=CITI_BODY))
+    txns_b = parser.parse(make_email(body_text=CITI_BODY_SAME_BUT_LATER))
+    assert txns_a[0]["imported_id"] != txns_b[0]["imported_id"]
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — Unparseable body returns empty list
 # ---------------------------------------------------------------------------
 
 def test_unparseable_body_returns_empty_list():

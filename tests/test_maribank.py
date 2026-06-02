@@ -95,6 +95,30 @@ def test_imported_id_determinism():
 # Test 5 — Different amount/merchant → different imported_id
 # ---------------------------------------------------------------------------
 
+def test_same_payee_amount_different_time_produces_different_id():
+    """Two purchases: same day, amount, merchant but different time must not collide."""
+    body_a = (
+        "You have made a payment to GRAB on your credit card ending 1111.\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 10:00 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    body_b = (
+        "You have made a payment to GRAB on your credit card ending 1111.\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 18:45 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    email_a = make_email(subject="Transaction Notification", body_text=body_a)
+    email_b = make_email(subject="Transaction Notification", body_text=body_b)
+    txns_a = parser.parse(email_a)
+    txns_b = parser.parse(email_b)
+    assert len(txns_a) == 1 and len(txns_b) == 1
+    assert txns_a[0]["imported_id"] != txns_b[0]["imported_id"]
+
+
 def test_different_transactions_have_different_imported_ids():
     body_a = (
         "You have made a payment to GRAB on your credit card ending 1111.\n"

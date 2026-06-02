@@ -97,7 +97,27 @@ def test_imported_id_determinism():
 
 
 # ---------------------------------------------------------------------------
-# Test 5 — Unparseable body returns empty list
+# Test 5 — Same payee/amount/date at different times → different imported_id
+# ---------------------------------------------------------------------------
+
+def test_same_payee_amount_different_time_produces_different_id():
+    """Two separate purchases at same merchant, same day, same price must not collide."""
+    body_a = (
+        "You've spent SGD 5.00 at Koufu SG on 01 Jun 2026 "
+        "08:00SGT with Visa ending 5678."
+    )
+    body_b = (
+        "You've spent SGD 5.00 at Koufu SG on 01 Jun 2026 "
+        "12:30SGT with Visa ending 5678."
+    )
+    txns_a = parser.parse(make_email(body_text=body_a))
+    txns_b = parser.parse(make_email(body_text=body_b))
+    assert len(txns_a) == 1 and len(txns_b) == 1
+    assert txns_a[0]["imported_id"] != txns_b[0]["imported_id"]
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — Unparseable body returns empty list
 # ---------------------------------------------------------------------------
 
 def test_unparseable_body_returns_empty():

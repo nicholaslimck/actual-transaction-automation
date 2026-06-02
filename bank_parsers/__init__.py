@@ -28,8 +28,14 @@ class BaseParser(ABC):
         ...
 
     @staticmethod
-    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
-        raw = f"{date}|{amount}|{payee}"
+    def _content_id(prefix: str, date: str, amount: int, payee: str, time: str = "") -> str:
+        """Stable content-hash transaction id.
+
+        Including `time` disambiguates two genuinely separate purchases with the
+        same date, amount, and payee (e.g. two identical coffees). Falls back to
+        the date-only recipe when the email carries no time component.
+        """
+        raw = f"{date}|{time}|{amount}|{payee}" if time else f"{date}|{amount}|{payee}"
         return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
     @abstractmethod

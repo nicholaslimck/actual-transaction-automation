@@ -63,7 +63,7 @@ class MaribankParser(BaseParser):
             r"made\s+a\s+payment\s+to\s+(.+?)(?:\s+on\s+your\s+|\s*$)",
             text, re.IGNORECASE
         )
-        date_m = re.search(r"Transaction\s*Time[:\s]*\n?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})", text, re.IGNORECASE)
+        date_m = re.search(r"Transaction\s*Time[:\s]*\n?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})\s+(\d{2}:\d{2})", text, re.IGNORECASE)
         amount_m = re.search(r"Amount[:\s]*\n?\s*SGD\s*([0-9,.]+)", text, re.IGNORECASE)
         card_m = re.search(r"(?:card\s+ending|card\s+\*{3,}|XXXX)\s*(\d{4})", text, re.IGNORECASE)
 
@@ -78,11 +78,12 @@ class MaribankParser(BaseParser):
 
             parsed_date = self.parse_date(date_str)
             amount_cents = -self.to_cents(amount_str)
+            txn_time = date_m.group(2) if date_m.lastindex >= 2 else ""
             return {
                 "date": parsed_date,
                 "amount": amount_cents,
                 "payee_name": merchant,
-                "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant),
+                "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant, txn_time),
                 "notes": card_note,
             }
 
@@ -98,11 +99,12 @@ class MaribankParser(BaseParser):
             parsed_date = self.parse_date(date_m.group(1).strip())
             amount_cents = -self.to_cents(amount_m.group(1))
             payee = fallback.group(1).strip().rstrip(".")
+            txn_time = date_m.group(2) if date_m.lastindex >= 2 else ""
             return {
                 "date": parsed_date,
                 "amount": amount_cents,
                 "payee_name": payee,
-                "imported_id": self._content_id("mari", parsed_date, amount_cents, payee),
+                "imported_id": self._content_id("mari", parsed_date, amount_cents, payee, txn_time),
                 "notes": "",
             }
 

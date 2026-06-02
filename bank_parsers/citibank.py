@@ -54,6 +54,12 @@ class CitibankParser(BaseParser):
             text, re.IGNORECASE
         )
 
+        # Transaction time: 17:01:19 (used to disambiguate same-day duplicates)
+        time_m = re.search(
+            r"Transaction\s+time[:\s]+(\d{2}:\d{2}(?::\d{2})?)",
+            text, re.IGNORECASE
+        )
+
         # Transaction amount: SGD2100.00
         amount_m = re.search(
             r"Transaction\s+amount[:\s]+SGD\s*([0-9,.]+)",
@@ -96,11 +102,12 @@ class CitibankParser(BaseParser):
 
             parsed_date = self.parse_date(date_str, email_date)
             amount_cents = -self.to_cents(amount_str)
+            txn_time = time_m.group(1) if time_m else ""
             return {
                 "date": parsed_date,
                 "amount": amount_cents,  # negative = charge
                 "payee_name": merchant,
-                "imported_id": self._content_id("citi", parsed_date, amount_cents, merchant),
+                "imported_id": self._content_id("citi", parsed_date, amount_cents, merchant, txn_time),
                 "notes": " | ".join(notes_parts),
             }
 
