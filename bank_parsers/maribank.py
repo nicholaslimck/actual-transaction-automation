@@ -44,7 +44,7 @@ class MaribankParser(BaseParser):
 
     @property
     def sender_pattern(self) -> str:
-        return r"notifications@maribank\.sg|maribank\.sg"
+        return r"notifications@maribank\.sg|(?<!noreply@)maribank\.sg"
 
     def parse(self, email_data: dict) -> list[dict]:
         subject = email_data.get("subject", "")
