@@ -14,14 +14,14 @@ class DbsParser(BaseParser):
         From: PayLah! Alerts <paylah.alert@dbs.com>
         Subject: Transaction Alerts
 
-        Transaction Ref: IPS69792811780206674
+        Transaction Ref: IPS00000000000000001
 
         We refer to your PayLah! Google Pay UEN transaction dated 31 May.
         [transaction was completed]
 
         Date & Time:   31 May 13:51 (SGT)
         Amount:        SGD1.80
-        From:          PayLah! Wallet (Mobile ending 7269)
+        From:          PayLah! Wallet (Mobile ending 0000)
         To:            S-11 (BISHAN 504) FOOD HOUSE PTE LTD
 
     Note: date has no year -- extracted from the email Date header.
@@ -100,12 +100,12 @@ class DbsParser(BaseParser):
     def _parse_incoming(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
         """Parse incoming transfer format from ibanking.alert@dbs.com.
 
-        Transaction Ref: PIB2605300506945590   C130547350396
+        Transaction Ref: PIB00000000000000001   C000000000001
 
         You have received SGD 25.00 via PayNow on 30 May 2026 15:02  SGT.
 
-        From: TOPAZ TAN
-        To: Your DBS/ POSB account ending 4831
+        From: ALICE TAN
+        To: Your DBS/ POSB account ending 0000
         """
         # Transaction reference
         ref_m = re.search(r"Transaction\s+Ref[:\s]+([A-Z0-9]+)", text, re.IGNORECASE)

@@ -18,11 +18,11 @@ class CitibankParser(BaseParser):
         We would like to inform you that there is a charge made on
         your Citi Cash Back+ Card:
 
-        Account Number           : XXXX-XXXX-XXXX-2575
+        Account Number           : XXXX-XXXX-XXXX-0000
         Transaction date         : 28/05/26
         Transaction time         : 17:01:19
         Transaction amount       : SGD2100.00
-        Transaction  details     : PAYALL RENTAL      -Awakened Essence Pte
+        Transaction  details     : SAMPLE MERCHANT
 
     Amount is outflow (negative). Date format: dd/mm/yy.
     Merchant from "Transaction details" field.
@@ -40,11 +40,11 @@ class CitibankParser(BaseParser):
         """Parse Citibank structured alert.
 
         Fields in the email body:
-          Account Number:      XXXX-XXXX-XXXX-2575
+          Account Number:      XXXX-XXXX-XXXX-0000
           Transaction date:    28/05/26
           Transaction time:    17:01:19
           Transaction amount:  SGD2100.00
-          Transaction details: PAYALL RENTAL -Awakened Essence Pte
+          Transaction details: SAMPLE MERCHANT
         """
         email_date = email_data.get("email_date")
 

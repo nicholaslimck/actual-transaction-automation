@@ -27,11 +27,11 @@ Dear Customer,
 We would like to inform you that there is a charge made on
 your Citi Cash Back+ Card:
 
-Account Number           : XXXX-XXXX-XXXX-2575
+Account Number           : XXXX-XXXX-XXXX-0000
 Transaction date         : 28/05/26
 Transaction time         : 17:01:19
 Transaction amount       : SGD2100.00
-Transaction  details     : PAYALL RENTAL      -Awakened Essence Pte
+Transaction  details     : SAMPLE MERCHANT
 """
 
 
@@ -51,12 +51,12 @@ def test_structured_alert_amount():
 
 def test_structured_alert_payee_starts_with_merchant():
     txns = parser.parse(make_email(body_text=CITI_BODY))
-    assert txns[0]["payee_name"].startswith("PAYALL RENTAL")
+    assert txns[0]["payee_name"].startswith("SAMPLE MERCHANT")
 
 
 def test_structured_alert_notes_contain_last_four():
     txns = parser.parse(make_email(body_text=CITI_BODY))
-    assert "*2575" in txns[0]["notes"]
+    assert "*0000" in txns[0]["notes"]
 
 
 def test_structured_alert_date():
@@ -88,7 +88,7 @@ Dear Customer,
 We would like to inform you that there is a charge made on
 your Citi Cash Back+ Card:
 
-Account Number           : XXXX-XXXX-XXXX-2575
+Account Number           : XXXX-XXXX-XXXX-0000
 Transaction date         : 28/05/26
 Transaction time         : 18:30:00
 Transaction amount       : SGD50.00

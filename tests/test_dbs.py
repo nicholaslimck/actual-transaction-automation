@@ -23,13 +23,13 @@ def make_email(subject="", body_text="", body_html="", message_id="<test-msg-1>"
 # ---------------------------------------------------------------------------
 
 PAYLAH_BODY = """\
-Transaction Ref: IPS69792811780206674
+Transaction Ref: IPS00000000000000001
 
 We refer to your PayLah! Google Pay UEN transaction dated 31 May.
 
 Date & Time:   31 May 13:51 (SGT)
 Amount:        SGD1.80
-From:          PayLah! Wallet (Mobile ending 7269)
+From:          PayLah! Wallet (Mobile ending 0000)
 To:            S-11 (BISHAN 504) FOOD HOUSE PTE LTD
 """
 
@@ -50,7 +50,7 @@ def test_paylah_outflow_payee():
 def test_paylah_outflow_imported_id_uses_transaction_ref():
     txns = parser.parse(make_email(body_text=PAYLAH_BODY,
                                    email_date=datetime(2026, 5, 31, tzinfo=timezone.utc)))
-    assert txns[0]["imported_id"] == "IPS69792811780206674"
+    assert txns[0]["imported_id"] == "IPS00000000000000001"
 
 
 def test_paylah_outflow_date_uses_email_year():
@@ -64,12 +64,12 @@ def test_paylah_outflow_date_uses_email_year():
 # ---------------------------------------------------------------------------
 
 INCOMING_BODY = """\
-Transaction Ref: PIB2605300506945590   C130547350396
+Transaction Ref: PIB00000000000000001   C000000000001
 
 You have received SGD 25.00 via PayNow on 30 May 2026 15:02  SGT.
 
-From: TOPAZ TAN
-To: Your DBS/ POSB account ending 4831
+From: ALICE TAN
+To: Your DBS/ POSB account ending 0000
 """
 
 
@@ -83,13 +83,13 @@ def test_incoming_paynow_amount_is_positive():
 def test_incoming_paynow_payee():
     txns = parser.parse(make_email(body_text=INCOMING_BODY,
                                    email_date=datetime(2026, 5, 30, tzinfo=timezone.utc)))
-    assert txns[0]["payee_name"] == "TOPAZ TAN"
+    assert txns[0]["payee_name"] == "ALICE TAN"
 
 
 def test_incoming_paynow_imported_id():
     txns = parser.parse(make_email(body_text=INCOMING_BODY,
                                    email_date=datetime(2026, 5, 30, tzinfo=timezone.utc)))
-    assert txns[0]["imported_id"] == "PIB2605300506945590"
+    assert txns[0]["imported_id"] == "PIB00000000000000001"
 
 
 def test_incoming_paynow_date():
