@@ -99,7 +99,47 @@ def test_incoming_paynow_date():
 
 
 # ---------------------------------------------------------------------------
-# Test 3 — Unparseable body returns empty list
+# Test 3 — Payment to another bank's card
+# ---------------------------------------------------------------------------
+
+CARD_PAYMENT_BODY = """\
+Transaction Ref: 10000000000000000001
+
+You've successfully made a payment for your other bank's credit card.
+Date and Time: 02 Jun 16:00 (SGT)
+Amount: SGD 100.00
+From: DBS Savings Plus Account (A/C ending 0000)
+To: Other bank's card ending 1234
+"""
+
+
+def test_card_payment_amount_is_negative():
+    txns = parser.parse(make_email(body_text=CARD_PAYMENT_BODY,
+                                   email_date=datetime(2026, 6, 2, tzinfo=timezone.utc)))
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -10000
+
+
+def test_card_payment_payee():
+    txns = parser.parse(make_email(body_text=CARD_PAYMENT_BODY,
+                                   email_date=datetime(2026, 6, 2, tzinfo=timezone.utc)))
+    assert txns[0]["payee_name"] == "Credit Card Payment (1234)"
+
+
+def test_card_payment_imported_id():
+    txns = parser.parse(make_email(body_text=CARD_PAYMENT_BODY,
+                                   email_date=datetime(2026, 6, 2, tzinfo=timezone.utc)))
+    assert txns[0]["imported_id"] == "10000000000000000001"
+
+
+def test_card_payment_date():
+    txns = parser.parse(make_email(body_text=CARD_PAYMENT_BODY,
+                                   email_date=datetime(2026, 6, 2, tzinfo=timezone.utc)))
+    assert txns[0]["date"] == "2026-06-02"
+
+
+# ---------------------------------------------------------------------------
+# Test 4 — Unparseable body returns empty list
 # ---------------------------------------------------------------------------
 
 def test_unparseable_body_returns_empty_list():

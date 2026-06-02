@@ -40,10 +40,64 @@ class DbsParser(BaseParser):
         subject = email_data.get("subject", "")
         msg_id = email_data.get("message_id", "")
         email_date = email_data.get("email_date")
+        txn = self._parse_card_payment(text, subject, msg_id, email_date)
+        if txn:
+            return txn
         txn = self._parse_paylah(text, subject, msg_id, email_date)
         if txn:
             return txn
         return self._parse_incoming(text, subject, msg_id, email_date)
+
+    def _parse_card_payment(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
+        """Parse ibanking 'Successful payment to another bank's card' alerts.
+
+        Observed format:
+
+            Transaction Ref: 10000000000000000001
+
+            You've successfully made a payment for your other bank's credit card.
+            Date and Time: 02 Jun 16:00 (SGT)
+            Amount: SGD 100.00
+            From: DBS Savings Plus Account (A/C ending 0000)
+            To: Other bank's card ending 0000
+
+        Note: date has no year -- extracted from the email Date header.
+        """
+        # Anchor: distinctive phrase in body
+        if not re.search(r"payment for your other bank.s credit card", text, re.IGNORECASE):
+            return None
+
+        ref_m = re.search(r"Transaction\s+Ref[:\s]+([A-Z0-9]+)", text, re.IGNORECASE)
+
+        # Date and Time: 02 Jun 16:00 (SGT)
+        date_m = re.search(
+            r"Date\s+and\s+Time[:\s]+(\d{1,2}\s+[A-Za-z]+)\s+\d{2}:\d{2}",
+            text, re.IGNORECASE
+        )
+
+        amount_m = re.search(r"Amount[:\s]+SGD\s*([0-9,.]+)", text, re.IGNORECASE)
+
+        # Card suffix from "To: Other bank's card ending XXXX"
+        to_m = re.search(r"\bTo:\s*.*?card\s+ending\s+(\d+)", text, re.IGNORECASE)
+
+        from_m = re.search(r"\bFrom:\s*(.+?)(?:\s*$|\s*\n|\s+To:)", text, re.IGNORECASE | re.MULTILINE)
+
+        if not (date_m and amount_m):
+            return None
+
+        date_str = date_m.group(1).strip()
+        amount_str = amount_m.group(1)
+        suffix = to_m.group(1) if to_m else None
+        payee_name = f"Credit Card Payment ({suffix})" if suffix else "Credit Card Payment"
+        notes = from_m.group(1).strip() if from_m else ""
+
+        return {
+            "date": self.parse_date(date_str, email_date),
+            "amount": -self.to_cents(amount_str),
+            "payee_name": payee_name,
+            "imported_id": ref_m.group(1) if ref_m else msg_id,
+            "notes": notes,
+        }
 
     def _parse_paylah(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
         """Parse PayLah! format (table with Date & Time, Amount, From, To)."""
