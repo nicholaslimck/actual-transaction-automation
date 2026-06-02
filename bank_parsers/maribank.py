@@ -1,6 +1,5 @@
 """Parser for MariBank transaction alert emails."""
 from . import BaseParser
-import hashlib
 import re
 import logging
 
@@ -33,11 +32,6 @@ class MaribankParser(BaseParser):
         "updated successfully",
     ]
 
-    @staticmethod
-    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
-        raw = f"{date}|{amount}|{payee}"
-        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
-
     @property
     def bank_name(self) -> str:
         return "MariBank"
@@ -48,27 +42,13 @@ class MaribankParser(BaseParser):
 
     def parse(self, email_data: dict) -> list[dict]:
         subject = email_data.get("subject", "")
-        # Early-exit for non-transaction emails
         subject_lower = subject.lower()
         if any(kw in subject_lower for kw in self._NON_TX_SUBJECTS):
             logger.debug("Skipping non-transaction MariBank email: %s", subject)
             return []
-        text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
-        msg_id = email_data.get("message_id", "")
+        return super().parse(email_data)
 
-        logger.debug("MariBank raw text:\n%s", text[:2000])
-
-        txns = []
-        txn = self._parse_alert(text, subject, msg_id)
-        if txn:
-            txns.append(txn)
-        else:
-            logger.warning("Could not parse MariBank email. Subject: %s", subject)
-            logger.debug("Full text:\n%s", text)
-
-        return txns
-
-    def _parse_alert(self, text: str, subject: str, msg_id: str) -> dict | None:
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
         """Parse the structured Maribank email.
 
         Pattern:
@@ -106,7 +86,10 @@ class MaribankParser(BaseParser):
                 "notes": card_note,
             }
 
-        # Strategy 2: Simpler pattern -- find any amount + merchant combo
+        # Strategy 2: Looser fallback for MariBank email variants where the phrasing
+        # differs from "made a payment to ... on your" (e.g. future template changes).
+        # Fires when Strategy-1 fails but Transaction Time + Amount are still present.
+        # If both strategies produce a result, Strategy-1 takes precedence.
         fallback = re.search(
             r"to\s+(.+?)(?:\s+on\s+your\s+card|\s*$)",
             text, re.IGNORECASE

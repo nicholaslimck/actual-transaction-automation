@@ -34,26 +34,23 @@ class ActualImporter:
             logger.error("Connection error: %s", e)
             return False
 
-    def list_accounts(self) -> list[dict]:
-        """List all accounts for mapping."""
-        result = self._run(["accounts", "list"])
-        if result.returncode == 0:
-            return json.loads(result.stdout)
-        return []
-
-    def import_transactions(self, account_id: str, transactions: list[dict], dry_run: bool = False) -> dict:
+    def import_transactions(self, account_id: str, transactions: list[dict]) -> dict:
         """Import transactions to an account.
 
         Each transaction dict can have:
           date (YYYY-MM-DD), amount (int in cents, negative=outflow),
           payee_name, notes, imported_id (for dedup), category, cleared (bool)
+
+        Returns one of:
+          {"added": int, "updated": int}  — success (may also contain "added_ids", "updated_ids")
+          {"error": str}                  — CLI non-zero exit
+          {"raw": str}                    — CLI succeeded but response was non-JSON
+        Caller should gate on "error" not in result.
         """
         if not transactions:
             return {"added": 0, "updated": 0}
 
         cmd = ["transactions", "import", "--account", account_id, "--file", "-"]
-        if dry_run:
-            cmd.append("--dry-run")
 
         # Pipe JSON data via stdin
         result = self._run(cmd, input_data=json.dumps(transactions))

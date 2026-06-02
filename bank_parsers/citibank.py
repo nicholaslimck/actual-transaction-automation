@@ -1,6 +1,5 @@
 """Parser for Citibank Singapore transaction alert emails."""
 from . import BaseParser
-import hashlib
 import re
 import logging
 
@@ -29,11 +28,6 @@ class CitibankParser(BaseParser):
     Merchant from "Transaction details" field.
     """
 
-    @staticmethod
-    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
-        raw = f"{date}|{amount}|{payee}"
-        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
-
     @property
     def bank_name(self) -> str:
         return "Citibank"
@@ -42,25 +36,7 @@ class CitibankParser(BaseParser):
     def sender_pattern(self) -> str:
         return r"alerts?@citibank\.com\.sg|citibank"
 
-    def parse(self, email_data: dict) -> list[dict]:
-        subject = email_data.get("subject", "")
-        text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
-        msg_id = email_data.get("message_id", "")
-        email_date = email_data.get("email_date")
-
-        logger.debug("Citibank raw text:\n%s", text[:2000])
-
-        txns = []
-        txn = self._parse_alert(text, subject, msg_id, email_date)
-        if txn:
-            txns.append(txn)
-        else:
-            logger.warning("Could not parse Citibank email. Subject: %s", subject)
-            logger.debug("Full text:\n%s", text)
-
-        return txns
-
-    def _parse_alert(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
         """Parse Citibank structured alert.
 
         Fields in the email body:
@@ -70,6 +46,7 @@ class CitibankParser(BaseParser):
           Transaction amount:  SGD2100.00
           Transaction details: PAYALL RENTAL -Awakened Essence Pte
         """
+        email_date = email_data.get("email_date")
 
         # Transaction date: dd/mm/yy
         date_m = re.search(

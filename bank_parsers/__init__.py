@@ -1,5 +1,6 @@
 """Base parser class for bank transaction alert emails."""
 from abc import ABC, abstractmethod
+import hashlib
 import re
 import logging
 from datetime import datetime
@@ -13,7 +14,7 @@ class BaseParser(ABC):
     Each bank subclass must implement:
       - bank_name: human-friendly name
       - sender_pattern: regex to match sender email
-      - parse(): extract transactions from email body
+      - _parse_alert(): extract one transaction from email text, or None
     """
 
     @property
@@ -26,18 +27,24 @@ class BaseParser(ABC):
     def sender_pattern(self) -> str:
         ...
 
-    @abstractmethod
-    def parse(self, email_data: dict) -> list[dict]:
-        """Parse email and return list of transaction dicts.
+    @staticmethod
+    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
+        raw = f"{date}|{amount}|{payee}"
+        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
-        Each transaction dict:
-          date: "YYYY-MM-DD"
-          amount: int (cents, negative = outflow)
-          payee_name: str
-          imported_id: str (for dedup)
-          notes: str (optional)
-        """
+    @abstractmethod
+    def _parse_alert(self, text: str, email_data: dict) -> "dict | None":
+        """Parse email text into a transaction dict, or None if unrecognised."""
         ...
+
+    def parse(self, email_data: dict) -> list[dict]:
+        """Template method: extract text, call _parse_alert, log on miss."""
+        text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
+        logger.debug("%s raw text:\n%s", self.bank_name, text[:2000])
+        txn = self._parse_alert(text, email_data)
+        if not txn:
+            logger.warning("Could not parse %s. Subject: %s", self.bank_name, email_data.get("subject", ""))
+        return [txn] if txn else []
 
     def can_handle(self, sender: str) -> bool:
         return bool(re.search(self.sender_pattern, sender, re.IGNORECASE))

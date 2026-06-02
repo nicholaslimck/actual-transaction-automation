@@ -15,7 +15,7 @@ from urllib.error import URLError
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://open.er-api.com/v6/latest"
-_USER_AGENT = "Hermes-Bank-Automation/1.0"
+_USER_AGENT = "actual-transaction-automation/1.0"
 
 # In-memory cache: currency -> rate (float) or None on failure
 _cache: dict[str, float | None] = {}
@@ -55,7 +55,6 @@ def get_rate(currency: str) -> float | None:
     except (URLError, json.JSONDecodeError, KeyError, ValueError, OSError) as e:
         logger.warning("FX rate fetch failed for %s: %s", cur, e)
 
-    _cache[cur] = None
     return None
 
 

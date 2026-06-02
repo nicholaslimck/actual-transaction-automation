@@ -1,6 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 from datetime import datetime
 from bank_parsers import BaseParser
@@ -13,6 +10,9 @@ from bank_parsers import BaseParser
 class _P(BaseParser):
     bank_name = "test"
     sender_pattern = r"test@example\.com"
+
+    def _parse_alert(self, text, email_data):
+        return None
 
     def parse(self, email_data):
         return []

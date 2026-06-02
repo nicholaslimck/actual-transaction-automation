@@ -1,7 +1,8 @@
 import imaplib
 import email as email_lib
 from email.header import decode_header
-from datetime import datetime
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,6 @@ class EmailFetcher:
             # Parse email Date header to get the full date (for parsers that need the year)
             email_date_parsed = None
             try:
-                from email.utils import parsedate_to_datetime
                 email_date_parsed = parsedate_to_datetime(date_str)
             except Exception:
                 pass
@@ -124,6 +124,5 @@ class EmailFetcher:
 
     @staticmethod
     def _date_days_ago(days: int) -> str:
-        from datetime import timedelta
         d = datetime.now() - timedelta(days=days)
         return d.strftime("%d-%b-%Y")

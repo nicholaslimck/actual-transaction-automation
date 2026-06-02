@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import argparse, logging, sys, os, json, yaml
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import argparse, logging, sys, os, json, yaml, time, re
+from collections import defaultdict
 from email_fetcher import EmailFetcher
 from actual_importer import ActualImporter
 from bank_parsers.registry import get_parser, all_parsers
@@ -13,8 +13,81 @@ def load_config(path):
     with open(path) as f:
         return yaml.safe_load(f)
 
-def run_import(config, dry_run=False):
-    import time
+def group_accounts_by_sender(config: dict) -> dict[str, list[dict]]:
+    """Group configured accounts by their email sender address."""
+    by: dict[str, list[dict]] = defaultdict(list)
+    for acct_cfg in config.get("accounts", []):
+        s = acct_cfg.get("email_sender", "")
+        if s and acct_cfg.get("actual_account_id", ""):
+            by[s].append(acct_cfg)
+    return dict(by)
+
+def process_sender(
+    sender: str,
+    accounts: list[dict],
+    fetcher,
+    parser,
+    importer,
+    dedup,
+    dry_run: bool,
+    lookback_days: int,
+) -> tuple[int, int]:
+    """Fetch, parse, dedup, import, and mark-seen for one email sender."""
+    emails = fetcher.fetch_unread_from(sender, lookback_days=lookback_days)
+    if not emails:
+        return 0, 0
+
+    all_txns = []
+    for em in emails:
+        all_txns.extend(parser.parse(em))
+    if not all_txns:
+        return 0, 0
+
+    n_added, n_updated = 0, 0
+    attempted = False
+    emails_with_success: set[str] = set()
+
+    for acct_cfg in accounts:
+        aid = acct_cfg["actual_account_id"]
+        if not dry_run:
+            candidate_ids = [t.get("imported_id", "") for t in all_txns]
+            known = dedup.check(aid, candidate_ids)
+            if known:
+                logger.info("  -> %d already cached, skipping", len(known))
+            filtered = [t for t in all_txns if t.get("imported_id", "") not in known]
+            if not filtered:
+                continue
+        else:
+            filtered = all_txns
+
+        logger.info("Importing %d txn(s) to %s%s", len(filtered), acct_cfg["name"], " (DRY)" if dry_run else "")
+
+        if not dry_run:
+            attempted = True
+            r = importer.import_transactions(aid, filtered)
+            import_succeeded = "error" not in r
+            if not import_succeeded:
+                logger.error("  -> import failed for %s: %s", acct_cfg["name"], r.get("error"))
+                continue
+            n_add = r.get("added", 0)
+            n_upd = r.get("updated", 0)
+            if n_add or n_upd:
+                logger.info("  -> %d added, %d updated", n_add, n_upd)
+            n_added += n_add
+            n_updated += n_upd
+            all_ids = [t.get("imported_id", "") for t in filtered]
+            dedup.record(aid, all_ids)
+            for em in emails:
+                emails_with_success.add(em["raw_id"])
+
+    if attempted:
+        for em in emails:
+            if em["raw_id"] in emails_with_success:
+                fetcher.mark_as_seen(em["raw_id"])
+
+    return n_added, n_updated
+
+def run_import(config: dict, dry_run: bool = False) -> None:
     lb = config["email"].get("lookback_days", 3)
     fetcher = EmailFetcher(config)
     importer = ActualImporter(config)
@@ -25,14 +98,9 @@ def run_import(config, dry_run=False):
             return
         dedup.open()
     fetcher.connect()
-    added, updated = 0, 0
+    total_added, total_updated = 0, 0
     try:
-        from collections import defaultdict
-        by = defaultdict(list)
-        for a in config.get("accounts", []):
-            s = a.get("email_sender", "")
-            if s and a.get("actual_account_id", ""):
-                by[s].append(a)
+        by = group_accounts_by_sender(config)
         for sender, accounts in by.items():
             bank_name = accounts[0].get("bank", "?")
             t0 = time.time()
@@ -41,54 +109,11 @@ def run_import(config, dry_run=False):
                 if not parser:
                     continue
                 logger.info("Checking %s (%s)...", bank_name, sender)
-                emails = fetcher.fetch_unread_from(sender, lookback_days=lb)
-                if not emails:
-                    continue
-                all_txns = []
-                for e in emails:
-                    all_txns.extend(parser.parse(e))
-                if not all_txns:
-                    continue
-                attempted = False
-                # Track which emails had at least one successful account import
-                emails_with_success = set()
-                for acct in accounts:
-                    aid = acct["actual_account_id"]
-                    # Filter out already-known transactions via local dedup
-                    if not dry_run:
-                        candidate_ids = [t.get("imported_id", "") for t in all_txns]
-                        known = dedup.check(aid, candidate_ids)
-                        if known:
-                            logger.info("  -> %d already cached, skipping", len(known))
-                        filtered = [t for t in all_txns if t.get("imported_id", "") not in known]
-                        if not filtered:
-                            continue
-                    else:
-                        filtered = all_txns
-                    logger.info("Importing %d txn(s) to %s%s", len(filtered), acct["name"], " (DRY)" if dry_run else "")
-                    if not dry_run:
-                        attempted = True
-                        r = importer.import_transactions(aid, filtered)
-                        import_succeeded = "error" not in r
-                        if not import_succeeded:
-                            logger.error("  -> import failed for %s: %s", acct["name"], r.get("error"))
-                            continue
-                        a = r.get("added", 0)
-                        u = r.get("updated", 0)
-                        if a or u:
-                            logger.info("  -> %d added, %d updated", a, u)
-                        added += a; updated += u
-                        # Record successfully imported IDs in local cache
-                        all_ids = [t.get("imported_id", "") for t in filtered]
-                        dedup.record(aid, all_ids)
-                        for e in emails:
-                            emails_with_success.add(e["raw_id"])
-                if attempted:
-                    for e in emails:
-                        if e["raw_id"] in emails_with_success:
-                            fetcher.mark_as_seen(e["raw_id"])
-            except Exception as e:
-                logger.error("Error processing %s (%s): %s", bank_name, sender, e, exc_info=True)
+                n_added, n_updated = process_sender(sender, accounts, fetcher, parser, importer, dedup, dry_run, lb)
+                total_added += n_added
+                total_updated += n_updated
+            except Exception as exc:
+                logger.error("Error processing %s (%s): %s", bank_name, sender, exc, exc_info=True)
                 continue
             elapsed = time.time() - t0
             logger.info("%s done in %.1fs", bank_name, elapsed)
@@ -96,20 +121,16 @@ def run_import(config, dry_run=False):
         fetcher.disconnect()
         if not dry_run:
             dedup.close()
-    logger.info("Done: %d added, %d updated", added, updated)
+    logger.info("Done: %d added, %d updated", total_added, total_updated)
 
 def run_test_parser(bank_arg):
     """Read a raw email JSON dict from stdin, run the matching parser, and print results."""
-    from bank_parsers.registry import all_parsers
-    # Find parser by bank_name
     parser = None
     for p in all_parsers():
         if p.bank_name.lower() == bank_arg.lower():
             parser = p
             break
     if parser is None:
-        # Try matching against sender patterns as a fallback
-        import re
         for p in all_parsers():
             pattern = getattr(p, "sender_pattern", None)
             if pattern and re.search(pattern, bank_arg, re.IGNORECASE):

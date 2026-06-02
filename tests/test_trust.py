@@ -1,7 +1,4 @@
 """Tests for TrustParser (bank_parsers/trust.py)."""
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 from datetime import datetime, timezone
 from bank_parsers.trust import TrustParser
@@ -48,7 +45,7 @@ def test_local_sgd_payment():
 # ---------------------------------------------------------------------------
 
 def test_overseas_payment_monkeypatched_fx(monkeypatch):
-    monkeypatch.setattr(trust_mod, "get_rate_or_fallback", lambda cur: 1.30)
+    monkeypatch.setattr(trust_mod, "sgd_from", lambda cur, cents: (int(cents * 1.30), 1.30))
 
     body = (
         "You've spent USD 100.00 using Visa Infinite ending 1234 "

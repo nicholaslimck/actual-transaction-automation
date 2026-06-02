@@ -1,7 +1,6 @@
 """Parser for Trust Bank Singapore transaction alert emails."""
 from . import BaseParser
-from .fx import get_rate_or_fallback
-import hashlib
+from .fx import sgd_from
 import re
 import logging
 
@@ -23,17 +22,14 @@ class TrustParser(BaseParser):
     def sender_pattern(self) -> str:
         return r"from_us@trustbank\.sg|trustbank\.sg|trust\s*bank"
 
-    def parse(self, email_data: dict) -> list[dict]:
-        subject = email_data.get("subject", "")
-        text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
         msg_id = email_data.get("message_id", "")
-
-        txn = self._parse_local(text, subject, msg_id)
+        txn = self._parse_local(text, msg_id)
         if not txn:
-            txn = self._parse_overseas(text, subject, msg_id)
-        return [txn] if txn else []
+            txn = self._parse_overseas(text, msg_id)
+        return txn
 
-    def _parse_local(self, text, subject, msg_id):
+    def _parse_local(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent SGD ([0-9,.]+) at (.+?) on "
             r"(\d{1,2} [A-Za-z]+ \d{4}) \d{2}:\d{2}SGT with (.+?)(?:\.|\s*$)",
@@ -52,7 +48,7 @@ class TrustParser(BaseParser):
             }
         return None
 
-    def _parse_overseas(self, text, subject, msg_id):
+    def _parse_overseas(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent ([A-Z]{3}) ([0-9,.]+) using (.+?) at (.+?) on "
             r"(\d{1,2} [A-Za-z]+ \d{4}) \d{2}:\d{2}SGT",
@@ -64,13 +60,10 @@ class TrustParser(BaseParser):
             card_info = m.group(3).strip()
             merchant = self._clean_merchant(m.group(4))
 
-            # Try live rate, fall back to hardcoded
-            rate = get_rate_or_fallback(cur)
-            if rate:
-                sgd_cents = int(round(amount_cents * rate))
+            sgd_cents, rate = sgd_from(cur, amount_cents)
+            if rate is not None:
                 notes = f"{card_info} | {cur}{m.group(2)} @ {rate:.4f}"
             else:
-                sgd_cents = amount_cents
                 notes = f"{card_info} | {cur}{m.group(2)} (no rate)"
 
             parsed_date = self.parse_date(m.group(5).strip())
@@ -82,11 +75,6 @@ class TrustParser(BaseParser):
                 "notes": notes,
             }
         return None
-
-    @staticmethod
-    def _content_id(prefix: str, date: str, amount: int, payee: str) -> str:
-        raw = f"{date}|{amount}|{payee}"
-        return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
     @staticmethod
     def _clean_merchant(raw):

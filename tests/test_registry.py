@@ -1,6 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 from bank_parsers.registry import get_parser, all_parsers
 from bank_parsers.dbs import DbsParser

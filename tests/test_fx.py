@@ -1,6 +1,3 @@
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import json
 import pytest
 from urllib.error import URLError
@@ -75,3 +72,25 @@ def test_sgd_from_converts_correctly(monkeypatch):
     sgd_cents, rate = fx.sgd_from("EUR", 10000)
     assert rate == 1.45
     assert sgd_cents == 14500  # int(round(10000 * 1.45))
+
+
+def test_no_negative_caching_on_failure(monkeypatch):
+    """A failed fetch should not poison the cache; subsequent call can succeed."""
+    call_count = [0]
+    fail_resp = _make_fake_resp({"rates": {"SGD": 1.55}})
+
+    def urlopen_side_effect(req, timeout):
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise URLError("temporary failure")
+        return fail_resp
+
+    monkeypatch.setattr(fx, "urlopen", urlopen_side_effect)
+
+    # First call fails
+    result1 = fx.get_rate("GBP")
+    assert result1 is None
+
+    # Second call succeeds (network recovered) — must NOT get None from cache
+    result2 = fx.get_rate("GBP")
+    assert result2 == 1.55

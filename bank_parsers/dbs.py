@@ -36,36 +36,14 @@ class DbsParser(BaseParser):
     def sender_pattern(self) -> str:
         return r"(?:paylah|ibanking)\.alert@dbs\.com|dbs\.com"
 
-    def parse(self, email_data: dict) -> list[dict]:
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
         subject = email_data.get("subject", "")
-        text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
         msg_id = email_data.get("message_id", "")
         email_date = email_data.get("email_date")
-
-        logger.debug("DBS raw text:\n%s", text[:2000])
-
-        txns = []
-        txn = self._parse_alert(text, subject, msg_id, email_date)
-        if txn:
-            txns.append(txn)
-        else:
-            logger.warning("Could not parse DBS email. Subject: %s", subject)
-            logger.debug("Full text:\n%s", text)
-
-        return txns
-
-    def _parse_alert(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
-        # Try PayLah! format first (table-like structure)
         txn = self._parse_paylah(text, subject, msg_id, email_date)
         if txn:
             return txn
-
-        # Try incoming transfer format (ibanking.alert@dbs.com)
-        txn = self._parse_incoming(text, subject, msg_id, email_date)
-        if txn:
-            return txn
-
-        return None
+        return self._parse_incoming(text, subject, msg_id, email_date)
 
     def _parse_paylah(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
         """Parse PayLah! format (table with Date & Time, Amount, From, To)."""

@@ -1,7 +1,4 @@
 """Tests for MaribankParser (bank_parsers/maribank.py)."""
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import re
 import pytest
 from datetime import datetime, timezone
