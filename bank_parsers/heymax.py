@@ -14,9 +14,9 @@ Both share the same structured field block:
     Transaction Amnt  SGD <amount>
     Transaction Time  YYYY-MM-DD HH:MM:SS +0800
 
-We only import FORMAT B (confirmed), emitting a tracking entry
-with amount=0 and miles/merchant info in notes. The underlying
-SGD transaction is already captured by the Trust parser.
+We only import FORMAT B (confirmed), emitting the real SGD outflow
+amount (negative). The imported_id is a content-hash of the transaction
+details so it's stable and survives parser changes.
 """
 
 from . import BaseParser
@@ -83,8 +83,6 @@ class HeymaxParser(BaseParser):
             Transaction Time
             YYYY-MM-DD HH:MM:SS +0800
         """
-        msg_id = email_data.get("message_id", "")
-
         # Merchant: text after "Merchant" line, before next blank or section
         merchant_m = re.search(
             r"^Merchant\s*\n\s*(.+?)(?:\n\s*\n|\n\s*(?:Miles\s+Earned|$))",
@@ -122,11 +120,17 @@ class HeymaxParser(BaseParser):
         # Date is already in YYYY-MM-DD from the email
         date_ymd = time_m.group(1).strip()[:10] if time_m else ""
 
+        # Time portion for content hash (disambiguates same-date purchases)
+        time_str = time_m.group(1).strip()[11:19] if time_m else ""
+
         # Build notes with miles info
         notes_parts = [f"Miles: {miles_str}", f"SGD {amount_str}"]
         if merchant:
             notes_parts.append(merchant)
         notes = " | ".join(notes_parts)
+
+        amount_cents = -self.to_cents(amount_str)
+        imported_id = self._content_id("heymax", date_ymd, amount_cents, merchant, time_str)
 
         logger.debug(
             "HeyMax confirmed: merchant=%s miles=%s sgd=%s date=%s",
@@ -135,8 +139,8 @@ class HeymaxParser(BaseParser):
 
         return {
             "date": date_ymd,
-            "amount": 0,  # non-monetary tracking entry
-            "payee_name": f"HeyMax Miles — {merchant}" if merchant else "HeyMax Miles",
-            "imported_id": msg_id,
+            "amount": amount_cents,
+            "payee_name": merchant or "HeyMax Miles",
+            "imported_id": imported_id,
             "notes": notes,
         }
