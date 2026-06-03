@@ -1,4 +1,4 @@
-"""Parser for HeyMax Chocolate card miles confirmation emails.
+"""Parser for HeyMax Chocolate card miles earned emails.
 
 Two email formats exist (both from max@heymax.ai):
 
@@ -14,9 +14,9 @@ Both share the same structured field block:
     Transaction Amnt  SGD <amount>
     Transaction Time  YYYY-MM-DD HH:MM:SS +0800
 
-We only import FORMAT B (confirmed), emitting the real SGD outflow
-amount (negative). The imported_id is a content-hash of the transaction
-details so it's stable and survives parser changes.
+We only import FORMAT A (earned), creating an uncleared transaction
+with the real SGD outflow amount so it shows up same-day.
+The subject_filter config routes "earned" emails at the account level.
 """
 
 from . import BaseParser
@@ -48,10 +48,10 @@ class HeymaxParser(BaseParser):
         return r"max@heymax\.ai"
 
     def _parse_alert(self, text: str, email_data: dict) -> dict | None:
-        """Parse a confirmed miles notification, or None to skip.
+        """Parse an earned miles notification, or None to skip.
 
-        Only processes "confirmed" format (Format B). Returns None for
-        pending "earned" emails, promos, newsletters, etc.
+        Only processes "earned" format (Format A). Returns None for
+        confirmed emails, promos, newsletters, etc.
         """
         subject = email_data.get("subject", "")
 
@@ -60,14 +60,14 @@ class HeymaxParser(BaseParser):
         if any(kw in subject_lower for kw in _NON_TX_SUBJECTS):
             return None
 
-        # Only process "confirmed" format — skip pending "earned" notifications
-        if "confirmed" not in subject_lower:
+        # Only process "earned" format
+        if "earned" not in subject_lower:
             return None
 
-        return self._extract_confirmed(text, email_data)
+        return self._extract_earned(text, email_data)
 
-    def _extract_confirmed(self, text: str, email_data: dict) -> dict | None:
-        """Extract transaction from a confirmed miles notification.
+    def _extract_earned(self, text: str, email_data: dict) -> dict | None:
+        """Extract transaction from an earned miles notification.
 
         Expected plain-text block:
 
@@ -133,7 +133,7 @@ class HeymaxParser(BaseParser):
         imported_id = self._content_id("heymax", date_ymd, amount_cents, merchant, time_str)
 
         logger.debug(
-            "HeyMax confirmed: merchant=%s miles=%s sgd=%s date=%s",
+            "HeyMax earned: merchant=%s miles=%s sgd=%s date=%s",
             merchant, miles_str, amount_str, date_ymd
         )
 
@@ -143,4 +143,5 @@ class HeymaxParser(BaseParser):
             "payee_name": merchant or "HeyMax Miles",
             "imported_id": imported_id,
             "notes": notes,
+            "cleared": False,
         }
