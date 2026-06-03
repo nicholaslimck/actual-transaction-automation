@@ -47,23 +47,29 @@ class HeymaxParser(BaseParser):
     def sender_pattern(self) -> str:
         return r"max@heymax\.ai"
 
-    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
-        """Parse an earned miles notification, or None to skip.
+    def parse(self, email_data: dict) -> list[dict]:
+        """Override to filter by subject before extracting/logging raw text.
 
-        Only processes "earned" format (Format A). Returns None for
-        confirmed emails, promos, newsletters, etc.
+        The base class logs 2000 chars of raw text for every email, but
+        HeyMax gets many promos/confirmed emails we skip. Filter first.
         """
-        subject = email_data.get("subject", "")
+        subject = email_data.get("subject", "").lower()
+        if any(kw in subject for kw in _NON_TX_SUBJECTS):
+            return []
+        if "earned" not in subject:
+            return []
 
-        # Skip non-transaction emails early
-        subject_lower = subject.lower()
-        if any(kw in subject_lower for kw in _NON_TX_SUBJECTS):
-            return None
+        # Only reach here for earned emails — now extract text and process
+        text = self.extract_text(
+            email_data.get("body_text", ""),
+            email_data.get("body_html", ""),
+        )
+        logger.debug("%s raw text:\n%s", self.bank_name, text[:2000])
+        txn = self._extract_earned(text, email_data)
+        return [txn] if txn else []
 
-        # Only process "earned" format
-        if "earned" not in subject_lower:
-            return None
-
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
+        """Unused — parse() handles routing. Kept for abstract conformance."""
         return self._extract_earned(text, email_data)
 
     def _extract_earned(self, text: str, email_data: dict) -> dict | None:
