@@ -43,6 +43,9 @@ class DbsParser(BaseParser):
         txn = self._parse_card_payment(text, subject, msg_id, email_date)
         if txn:
             return txn
+        txn = self._parse_card_alert(text, subject, msg_id, email_date)
+        if txn:
+            return txn
         txn = self._parse_paylah(text, subject, msg_id, email_date)
         if txn:
             return txn
@@ -91,12 +94,60 @@ class DbsParser(BaseParser):
         payee_name = f"Credit Card Payment ({suffix})" if suffix else "Credit Card Payment"
         notes = from_m.group(1).strip() if from_m else ""
 
+        # account_last4: use the source DBS account ending (the account being tracked),
+        # not the third-party destination card which belongs to another bank.
         return {
             "date": self.parse_date(date_str, email_date),
             "amount": -self.to_cents(amount_str),
             "payee_name": payee_name,
             "imported_id": ref_m.group(1) if ref_m else msg_id,
             "notes": notes,
+            "account_last4": self.extract_last4(notes),
+        }
+
+    def _parse_card_alert(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
+        """Parse ibanking 'Card Transaction Alert' emails.
+
+        Observed format:
+
+            Transaction Ref: SP0000000000000000001
+
+            We refer to your card transaction request dated 03/06/26.
+
+            Date & Time: 03 JUN 05:36 (SGT)
+            Amount: SGD3.64
+            From: DBS/POSB card ending 0000
+            To: BUS/MRT
+        """
+        if not re.search(r"card transaction (?:request|alert)", text, re.IGNORECASE):
+            return None
+
+        ref_m = re.search(r"Transaction\s+Ref[:\s]+([A-Z0-9]+)", text, re.IGNORECASE)
+
+        date_m = re.search(
+            r"Date\s*&\s*Time[:\s]+(\d{1,2}\s+[A-Za-z]+)\s+\d{2}:\d{2}",
+            text, re.IGNORECASE
+        )
+
+        amount_m = re.search(r"Amount[:\s]+SGD\s*([0-9,.]+)", text, re.IGNORECASE)
+
+        to_m = re.search(r"\bTo:\s*(.+)", text, re.IGNORECASE)
+
+        from_m = re.search(r"\bFrom:\s*(.+?)(?:\s*\n|\s+To:)", text, re.IGNORECASE)
+
+        if not (date_m and amount_m and to_m):
+            return None
+
+        merchant = re.sub(r"\s+", " ", to_m.group(1).strip()).split("\n")[0].strip()
+        notes = from_m.group(1).strip() if from_m else ""
+
+        return {
+            "date": self.parse_date(date_m.group(1).strip(), email_date),
+            "amount": -self.to_cents(amount_m.group(1)),
+            "payee_name": merchant,
+            "imported_id": ref_m.group(1) if ref_m else msg_id,
+            "notes": notes,
+            "account_last4": self.extract_last4(notes),
         }
 
     def _parse_paylah(self, text: str, subject: str, msg_id: str, email_date) -> dict | None:
@@ -147,6 +198,7 @@ class DbsParser(BaseParser):
                 "payee_name": merchant,
                 "imported_id": imported_id,
                 "notes": notes,
+                "account_last4": self.extract_last4(notes),
             }
 
         return None
@@ -188,6 +240,7 @@ class DbsParser(BaseParser):
                 "payee_name": sender_name,
                 "imported_id": ref_m.group(1) if ref_m else msg_id,
                 "notes": account_info,
+                "account_last4": self.extract_last4(account_info),
             }
 
         return None

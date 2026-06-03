@@ -106,6 +106,37 @@ class TestExtractText:
 
 
 # ---------------------------------------------------------------------------
+# extract_last4
+# ---------------------------------------------------------------------------
+
+class TestExtractLast4:
+    def test_ending_digits(self):
+        assert p.extract_last4("DBS/POSB card ending 7654") == "7654"
+
+    def test_ending_in_digits(self):
+        assert p.extract_last4("account ending in 1234") == "1234"
+
+    def test_star_prefix(self):
+        # Single * alone doesn't match (banks use ** or **** minimum)
+        assert p.extract_last4("*7654") is None
+
+    def test_multi_star_prefix(self):
+        assert p.extract_last4("****7654") == "7654"
+
+    def test_xxxx_dashes(self):
+        assert p.extract_last4("XXXX-XXXX-XXXX-7654") == "7654"
+
+    def test_plain_name_returns_none(self):
+        assert p.extract_last4("Trust Platinum") is None
+
+    def test_empty_string_returns_none(self):
+        assert p.extract_last4("") is None
+
+    def test_none_returns_none(self):
+        assert p.extract_last4(None) is None
+
+
+# ---------------------------------------------------------------------------
 # can_handle
 # ---------------------------------------------------------------------------
 

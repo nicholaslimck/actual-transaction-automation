@@ -109,6 +109,7 @@ class CitibankParser(BaseParser):
                 "payee_name": merchant,
                 "imported_id": self._content_id("citi", parsed_date, amount_cents, merchant, txn_time),
                 "notes": " | ".join(notes_parts),
+                "account_last4": account_m.group(1) if account_m else None,
             }
 
         return None

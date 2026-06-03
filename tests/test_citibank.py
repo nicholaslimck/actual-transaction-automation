@@ -133,3 +133,24 @@ def test_same_payee_amount_different_time_produces_different_id():
 def test_unparseable_body_returns_empty_list():
     txns = parser.parse(make_email(body_text="hello world nothing useful here"))
     assert txns == []
+
+
+def test_structured_alert_account_last4():
+    txns = parser.parse(make_email(body_text=CITI_BODY))
+    assert txns[0]["account_last4"] == "0000"
+
+
+def test_no_account_number_account_last4_is_none():
+    body = """\
+Dear Customer,
+We would like to inform you that there is a charge made on
+your Citi Cash Back+ Card:
+
+Transaction date         : 28/05/26
+Transaction time         : 17:01:19
+Transaction amount       : SGD2100.00
+Transaction  details     : SAMPLE MERCHANT
+"""
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["account_last4"] is None

@@ -120,6 +120,38 @@ def test_same_payee_amount_different_time_produces_different_id():
 # Test 6 — Unparseable body returns empty list
 # ---------------------------------------------------------------------------
 
+def test_local_account_last4_from_ending_in_card_name():
+    """Trust card name 'Visa Infinite ending 1234' contains digits; extract_last4 finds them."""
+    body = (
+        "You've spent SGD 45.50 at Starbucks Singapore SG on 15 May 2026 "
+        "10:30SGT with Visa Infinite ending 1234."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert txns[0]["account_last4"] == "1234"
+
+
+def test_local_account_last4_none_when_no_digits():
+    """Card name with no digits -> account_last4 is None."""
+    body = (
+        "You've spent SGD 10.00 at Kopitiam SG on 01 Jun 2026 "
+        "09:00SGT with Trust Platinum."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["account_last4"] is None
+
+
+def test_overseas_account_last4(monkeypatch):
+    monkeypatch.setattr(trust_mod, "sgd_from", lambda cur, cents: (cents, 1.0))
+    body = (
+        "You've spent USD 50.00 using Visa ending 5678 "
+        "at Netflix US on 10 Jun 2026 00:00SGT"
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["account_last4"] == "5678"
+
+
 def test_unparseable_body_returns_empty():
     email = make_email(
         subject="Trust Bank",

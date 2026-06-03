@@ -22,6 +22,12 @@ def group_accounts_by_sender(config: dict) -> dict[str, list[dict]]:
             by[s].append(acct_cfg)
     return dict(by)
 
+def _account_matches(txn: dict, wanted: str) -> bool:
+    """Return True if txn's account_last4 zero-padded to 4 digits equals wanted."""
+    got = txn.get("account_last4")
+    return got is not None and str(got).zfill(4) == wanted
+
+
 def process_sender(
     sender: str,
     accounts: list[dict],
@@ -37,28 +43,53 @@ def process_sender(
     if not emails:
         return 0, 0
 
-    all_txns = []
-    for em in emails:
-        all_txns.extend(parser.parse(em))
-    if not all_txns:
+    # Preserve email→txns association so subject_filter can route per account
+    email_txns = [(em, parser.parse(em)) for em in emails]
+    if not any(txns for _, txns in email_txns):
         return 0, 0
 
     n_added, n_updated = 0, 0
     attempted = False
-    emails_with_success: set[str] = set()
+    emails_routed: set[str] = set()   # email had >=1 txn routed to some account
+    emails_failed: set[str] = set()   # >=1 routed leg for this email failed import
 
     for acct_cfg in accounts:
         aid = acct_cfg["actual_account_id"]
+        subject_filter = acct_cfg.get("subject_filter")
+        cf = acct_cfg.get("account_filter")
+        account_filter = str(cf).zfill(4) if cf is not None else None
+
+        acct_pairs = []
+        for em, txns in email_txns:
+            if not txns:
+                continue
+            # subject_filter: email-level gate (unchanged semantics)
+            if subject_filter and not re.search(subject_filter, em.get("subject", ""), re.IGNORECASE):
+                continue
+            # account_filter: per-txn gate (AND with subject_filter)
+            if account_filter is not None:
+                sel = [t for t in txns if _account_matches(t, account_filter)]
+            else:
+                sel = txns
+            if sel:
+                acct_pairs.append((em, sel))
+
+        acct_txns = [t for _, txns in acct_pairs for t in txns]
+        if not acct_txns:
+            continue
+        for em, _ in acct_pairs:
+            emails_routed.add(em["raw_id"])
+
         if not dry_run:
-            candidate_ids = [t.get("imported_id", "") for t in all_txns]
+            candidate_ids = [t.get("imported_id", "") for t in acct_txns]
             known = dedup.check(aid, candidate_ids)
             if known:
                 logger.info("  -> %d already cached, skipping", len(known))
-            filtered = [t for t in all_txns if t.get("imported_id", "") not in known]
+            filtered = [t for t in acct_txns if t.get("imported_id", "") not in known]
             if not filtered:
                 continue
         else:
-            filtered = all_txns
+            filtered = acct_txns
 
         logger.info("Importing %d txn(s) to %s%s", len(filtered), acct_cfg["name"], " (DRY)" if dry_run else "")
 
@@ -68,6 +99,8 @@ def process_sender(
             import_succeeded = "error" not in r
             if not import_succeeded:
                 logger.error("  -> import failed for %s: %s", acct_cfg["name"], r.get("error"))
+                for em, _ in acct_pairs:
+                    emails_failed.add(em["raw_id"])
                 continue
             n_add = r.get("added", 0)
             n_upd = r.get("updated", 0)
@@ -77,13 +110,12 @@ def process_sender(
             n_updated += n_upd
             all_ids = [t.get("imported_id", "") for t in filtered]
             dedup.record(aid, all_ids)
-            for em in emails:
-                emails_with_success.add(em["raw_id"])
 
     if attempted:
-        for em in emails:
-            if em["raw_id"] in emails_with_success:
-                fetcher.mark_as_seen(em["raw_id"])
+        for em, _ in email_txns:
+            rid = em["raw_id"]
+            if rid in emails_routed and rid not in emails_failed:
+                fetcher.mark_as_seen(rid)
 
     return n_added, n_updated
 

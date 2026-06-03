@@ -39,12 +39,14 @@ class TrustParser(BaseParser):
             parsed_date = self.parse_date(m.group(3).strip())
             amount_cents = -self.to_cents(m.group(1))
             merchant = self._clean_merchant(m.group(2))
+            card_name = m.group(5).strip()
             return {
                 "date": parsed_date,
                 "amount": amount_cents,
                 "payee_name": merchant,
                 "imported_id": self._content_id("trust-local", parsed_date, amount_cents, merchant, m.group(4)),
-                "notes": m.group(5).strip(),
+                "notes": card_name,
+                "account_last4": self.extract_last4(card_name),
             }
         return None
 
@@ -74,6 +76,7 @@ class TrustParser(BaseParser):
                 "payee_name": merchant,
                 "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant, txn_time),
                 "notes": notes,
+                "account_last4": self.extract_last4(card_info),
             }
         return None
 

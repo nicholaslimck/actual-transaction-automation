@@ -85,6 +85,7 @@ class MaribankParser(BaseParser):
                 "payee_name": merchant,
                 "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant, txn_time),
                 "notes": card_note,
+                "account_last4": card_m.group(1) if card_m else None,
             }
 
         # Strategy 2: Looser fallback for MariBank email variants where the phrasing
@@ -106,6 +107,7 @@ class MaribankParser(BaseParser):
                 "payee_name": payee,
                 "imported_id": self._content_id("mari", parsed_date, amount_cents, payee, txn_time),
                 "notes": "",
+                "account_last4": None,
             }
 
         return None

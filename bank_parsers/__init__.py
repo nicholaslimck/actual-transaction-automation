@@ -44,7 +44,11 @@ class BaseParser(ABC):
         ...
 
     def parse(self, email_data: dict) -> list[dict]:
-        """Template method: extract text, call _parse_alert, log on miss."""
+        """Template method: extract text, call _parse_alert, log on miss.
+
+        Returned dicts contain: date, amount (cents, negative=outflow),
+        payee_name, imported_id, notes, account_last4 (4-digit str or None).
+        """
         text = self.extract_text(email_data.get("body_text", ""), email_data.get("body_html", ""))
         logger.debug("%s raw text:\n%s", self.bank_name, text[:2000])
         txn = self._parse_alert(text, email_data)
@@ -72,6 +76,21 @@ class BaseParser(ABC):
         clean = re.sub(r"&[a-zA-Z]+;", " ", clean)  # catch any other entities
         clean = re.sub(r"\s+", " ", clean)
         return clean.strip()
+
+    @staticmethod
+    def extract_last4(text: str) -> "str | None":
+        """Extract 4-digit card/account ending from common bank text snippets.
+
+        Handles: 'ending 7654', 'ending in 7654', '****7654',
+        'XXXX-XXXX-XXXX-7654'.  Returns None if no match.
+        """
+        if not text:
+            return None
+        m = re.search(
+            r"(?:ending(?:\s+in)?\s+|[*xX]{2,}[\s-]*)(\d{4})\b",
+            text, re.IGNORECASE,
+        )
+        return m.group(1) if m else None
 
     @staticmethod
     def to_cents(amount_str: str) -> int:

@@ -119,6 +119,32 @@ def test_same_payee_amount_different_time_produces_different_id():
     assert txns_a[0]["imported_id"] != txns_b[0]["imported_id"]
 
 
+def test_strategy1_account_last4():
+    body = (
+        "You have made a payment to FAIRPRICE FINEST on your credit card ending 9876.\n"
+        "Transaction Time:\n"
+        "15 May 2026 14:30 SGT\n"
+        "Amount:\n"
+        "SGD 32.50"
+    )
+    txns = parser.parse(make_email(subject="Transaction Notification", body_text=body))
+    assert txns[0]["account_last4"] == "9876"
+
+
+def test_strategy2_fallback_account_last4_is_none():
+    """Strategy-2 fallback cannot extract a card ending -> account_last4 is None."""
+    body = (
+        "Payment to GRAB on your card\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 10:00 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    txns = parser.parse(make_email(subject="Transaction Notification", body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["account_last4"] is None
+
+
 def test_different_transactions_have_different_imported_ids():
     body_a = (
         "You have made a payment to GRAB on your credit card ending 1111.\n"

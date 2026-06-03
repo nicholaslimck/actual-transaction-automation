@@ -19,6 +19,30 @@ accounts:
     bank: dbs
     email_sender: "paylah.alert@dbs.com"
     actual_account_id: ""
+  # Optional per-account routing filters (both optional; when both set they AND):
+  #   subject_filter: regex matched against the email Subject (email-level).
+  #   account_filter: last 4 digits of the card; only transactions whose
+  #                   account_last4 matches are routed here (per-transaction).
+  #                   Quote the value ("1234") so leading zeros survive YAML.
+  #
+  # Example: same sender + same subject, two physical cards → two accounts.
+  # - name: "DBS Card 1234"
+  #   bank: dbs
+  #   email_sender: "ibanking.alert@dbs.com"
+  #   subject_filter: "Card Transaction Alert"
+  #   account_filter: "1234"
+  #   actual_account_id: ""
+  # - name: "DBS Card 5678"
+  #   bank: dbs
+  #   email_sender: "ibanking.alert@dbs.com"
+  #   subject_filter: "Card Transaction Alert"
+  #   account_filter: "5678"
+  #   actual_account_id: ""
+  # - name: "DBS Savings Plus"
+  #   bank: dbs
+  #   email_sender: "ibanking.alert@dbs.com"
+  #   subject_filter: "Transaction Alerts"
+  #   actual_account_id: ""
   - name: "Citi Cash Back Plus Credit"
     bank: citibank
     email_sender: "alerts@citibank.com.sg"
