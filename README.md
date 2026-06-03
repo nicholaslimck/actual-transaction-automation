@@ -20,6 +20,7 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 | Citibank Credit Card | alerts@citibank.com.sg | Credit card charges |
 | Trust Credit Card | from_us@trustbank.sg | Local & overseas transactions |
 | Maribank Credit Card | notifications@maribank.sg | Credit card charges |
+| HeyMax Miles | max@heymax.ai | Chocolate card miles confirmed (tracking only) |
 
 ## Setup
 

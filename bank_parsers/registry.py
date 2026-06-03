@@ -4,6 +4,7 @@ from .dbs import DbsParser
 from .citibank import CitibankParser
 from .trust import TrustParser
 from .maribank import MaribankParser
+from .heymax import HeymaxParser
 
 # Registered parsers -- add new ones here
 _PARSERS: list[BaseParser] = [
@@ -11,6 +12,7 @@ _PARSERS: list[BaseParser] = [
     CitibankParser(),
     TrustParser(),
     MaribankParser(),
+    HeymaxParser(),
 ]
 
 
