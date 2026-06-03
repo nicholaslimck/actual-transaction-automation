@@ -101,9 +101,9 @@ class HeymaxParser(BaseParser):
             text, re.IGNORECASE
         )
 
-        # Transaction amount
+        # Transaction amount — "SGD 6.98" or "$6.98"
         amount_m = re.search(
-            r"Transaction\s+Amount\s*\n\s*SGD\s*([0-9,.]+)",
+            r"Transaction\s+Amount\s*\n\s*(?:SGD\s*)?\$?\s*([0-9,.]+)",
             text, re.IGNORECASE
         )
 
