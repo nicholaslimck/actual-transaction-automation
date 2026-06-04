@@ -94,7 +94,10 @@ class BaseParser(ABC):
 
     @staticmethod
     def to_cents(amount_str: str) -> int:
-        """Convert '12.34' or 'S$12.34' to 1234 cents (negative by default)."""
+        """Convert '12.34' or 'S$12.34' to 1234 cents (always positive).
+
+        Callers that need an outflow must negate: ``-self.to_cents(amount_str)``.
+        """
         cleaned = re.sub(r"[^\d.\-]", "", amount_str)
         try:
             return int(round(float(cleaned) * 100))

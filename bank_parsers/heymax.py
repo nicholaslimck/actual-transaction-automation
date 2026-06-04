@@ -17,6 +17,9 @@ Both share the same structured field block:
 We only import FORMAT A (earned), creating an uncleared transaction
 with the real SGD outflow amount so it shows up same-day.
 The subject_filter config routes "earned" emails at the account level.
+
+Note: HeyMax earned emails carry no card last-4 digits, so account_filter
+is unsupported for this parser. Route via subject_filter only.
 """
 
 from . import BaseParser
@@ -48,31 +51,19 @@ class HeymaxParser(BaseParser):
         return r"max@heymax\.ai"
 
     def parse(self, email_data: dict) -> list[dict]:
-        """Override to filter by subject before extracting/logging raw text.
+        """Skip promos and confirmed emails before body extraction/logging.
 
-        The base class logs 2000 chars of raw text for every email, but
-        HeyMax gets many promos/confirmed emails we skip. Filter first.
+        The base class logs 2000 chars of raw text for every email; filter
+        by subject first so skipped emails never hit the log.
         """
         subject = email_data.get("subject", "").lower()
         if any(kw in subject for kw in _NON_TX_SUBJECTS):
             return []
         if "earned" not in subject:
             return []
-
-        # Only reach here for earned emails — now extract text and process
-        text = self.extract_text(
-            email_data.get("body_text", ""),
-            email_data.get("body_html", ""),
-        )
-        logger.debug("%s raw text:\n%s", self.bank_name, text[:2000])
-        txn = self._extract_earned(text, email_data)
-        return [txn] if txn else []
+        return super().parse(email_data)
 
     def _parse_alert(self, text: str, email_data: dict) -> dict | None:
-        """Unused — parse() handles routing. Kept for abstract conformance."""
-        return self._extract_earned(text, email_data)
-
-    def _extract_earned(self, text: str, email_data: dict) -> dict | None:
         """Extract transaction from an earned miles notification.
 
         Expected plain-text block:
@@ -113,7 +104,9 @@ class HeymaxParser(BaseParser):
             text, re.IGNORECASE
         )
 
-        if not merchant_m and not amount_m and not time_m:
+        # amount and time are required: amount drives the ledger entry,
+        # time provides the date. A partial match must not emit a $0 / empty-date txn.
+        if not amount_m or not time_m:
             return None
 
         merchant = merchant_m.group(1).strip() if merchant_m else ""
@@ -121,13 +114,13 @@ class HeymaxParser(BaseParser):
             merchant = re.sub(r"\s+", " ", merchant).strip()
 
         miles_str = miles_m.group(1) if miles_m else "0"
-        amount_str = amount_m.group(1) if amount_m else "0"
+        amount_str = amount_m.group(1)          # guaranteed by guard above
 
         # Date is already in YYYY-MM-DD from the email
-        date_ymd = time_m.group(1).strip()[:10] if time_m else ""
+        date_ymd = time_m.group(1).strip()[:10]  # guaranteed by guard above
 
         # Time portion for content hash (disambiguates same-date purchases)
-        time_str = time_m.group(1).strip()[11:19] if time_m else ""
+        time_str = time_m.group(1).strip()[11:19]
 
         # Build notes with miles info
         notes_parts = [f"Miles: {miles_str}", f"SGD {amount_str}"]

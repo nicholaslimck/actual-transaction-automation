@@ -44,8 +44,8 @@ class TestGetParser:
 # ---------------------------------------------------------------------------
 
 class TestAllParsers:
-    def test_returns_four_parsers(self):
-        assert len(all_parsers()) == 4
+    def test_returns_five_parsers(self):
+        assert len(all_parsers()) == 5
 
     def test_all_expected_bank_names_present(self):
         names = [p.bank_name for p in all_parsers()]
@@ -53,3 +53,4 @@ class TestAllParsers:
         assert "Citibank" in names
         assert "Trust Bank" in names
         assert "MariBank" in names
+        assert "HeyMax" in names
