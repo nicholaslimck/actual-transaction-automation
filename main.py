@@ -96,9 +96,13 @@ def process_sender(
         if not dry_run:
             attempted = True
             r = importer.import_transactions(aid, filtered)
-            import_succeeded = "error" not in r
+            # {"raw": ...} means CLI exited 0 but returned an unrecognized/non-JSON
+            # response — import outcome unknown, treat as failure so the email stays
+            # unread and retries rather than being silently lost.
+            import_succeeded = "error" not in r and "raw" not in r
             if not import_succeeded:
-                logger.error("  -> import failed for %s: %s", acct_cfg["name"], r.get("error"))
+                reason = r.get("error") or f"unrecognized CLI response: {r.get('raw')!r}"
+                logger.error("  -> import failed for %s: %s", acct_cfg["name"], reason)
                 for em, _ in acct_pairs:
                     emails_failed.add(em["raw_id"])
                 continue

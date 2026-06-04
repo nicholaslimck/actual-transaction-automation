@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import hashlib
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +108,11 @@ class BaseParser(ABC):
     def parse_date(date_str: str, email_date=None) -> str:
         """Try to parse various date formats into YYYY-MM-DD.
 
-        If the date string has no year (e.g. '31 May'), falls back to
-        the year from email_date header, then to current year.
+        If the date string has no year (e.g. '31 May'), falls back to the year
+        from email_date header, then to current year. A Dec/Jan rollover guard
+        is applied: if the inferred date lands more than 2 days in the future
+        relative to email_date (or now()), the year is rolled back by one to
+        handle e.g. a 31-Dec txn in an email received on 1-Jan.
         """
         # Try formats with full year first
         for fmt in [
@@ -130,16 +133,26 @@ class BaseParser(ABC):
             except ValueError:
                 continue
 
-        # Try formats without year
-        year = datetime.now().year
-        if email_date:
-            year = email_date.year
+        # Try formats without year — use email_date for year anchor
+        ref = email_date if email_date else datetime.now()
+        year = ref.year
         for fmt in ["%d %b", "%d %B", "%d/%m", "%d-%m", "%b %d", "%B %d"]:
             try:
                 dt = datetime.strptime(f"{date_str.strip()} {year}", f"{fmt} %Y")
-                return dt.strftime("%Y-%m-%d")
             except ValueError:
                 continue
+            # Dec/Jan rollover guard: if the inferred date is more than 2 days
+            # in the future AND falls in the last 60 days of the year (Nov/Dec),
+            # the txn likely belongs to the prior year — e.g. a 31-Dec txn in an
+            # email received 1-Jan. The 60-day window avoids false roll-backs for
+            # ordinary dates earlier in the year.
+            ref_naive = ref.replace(tzinfo=None)
+            if (dt - ref_naive).days > 2 and dt.month >= 11:
+                try:
+                    dt = dt.replace(year=year - 1)
+                except ValueError:          # e.g. Feb 29 on non-leap year
+                    dt = dt - timedelta(days=365)
+            return dt.strftime("%Y-%m-%d")
 
         # If all formats fail, raise rather than silently importing a wrong date
         raise ValueError(f"Cannot parse date: {date_str!r}")

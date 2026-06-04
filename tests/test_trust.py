@@ -62,6 +62,7 @@ def test_overseas_payment_monkeypatched_fx(monkeypatch):
     assert "USD" in txn["notes"]
     assert "1.3000" in txn["notes"]
     assert txn["imported_id"].startswith("trust:")
+    assert txn["cleared"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -158,4 +159,20 @@ def test_unparseable_body_returns_empty():
         body_text="Your account statement is ready. Please log in to view.",
     )
     txns = parser.parse(email)
+    assert txns == []
+
+
+# ---------------------------------------------------------------------------
+# H1 — overseas txn skipped when FX rate unavailable
+# ---------------------------------------------------------------------------
+
+def test_overseas_no_rate_returns_empty(monkeypatch):
+    """When sgd_from cannot resolve a rate, the txn must be dropped so the
+    email stays unread and retries rather than importing the wrong amount."""
+    monkeypatch.setattr(trust_mod, "sgd_from", lambda cur, cents: (cents, None))
+    body = (
+        "You've spent USD 100.00 using Visa Infinite ending 1234 "
+        "at Amazon US on 20 May 2026 08:00SGT"
+    )
+    txns = parser.parse(make_email(body_text=body))
     assert txns == []

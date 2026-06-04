@@ -63,10 +63,14 @@ class TrustParser(BaseParser):
             merchant = self._clean_merchant(m.group(4))
 
             sgd_cents, rate = sgd_from(cur, amount_cents)
-            if rate is not None:
-                notes = f"{card_info} | {cur}{m.group(2)} @ {rate:.4f}"
-            else:
-                notes = f"{card_info} | {cur}{m.group(2)} (no rate)"
+            if rate is None:
+                logger.error(
+                    "Trust overseas txn skipped: no FX rate for %s (%s %s). "
+                    "Email left unread to retry.",
+                    cur, cur, m.group(2),
+                )
+                return None
+            notes = f"{card_info} | {cur}{m.group(2)} @ {rate:.4f}"
 
             parsed_date = self.parse_date(m.group(5).strip())
             txn_time = m.group(6)
@@ -77,6 +81,7 @@ class TrustParser(BaseParser):
                 "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant, txn_time),
                 "notes": notes,
                 "account_last4": self.extract_last4(card_info),
+                "cleared": False,
             }
         return None
 

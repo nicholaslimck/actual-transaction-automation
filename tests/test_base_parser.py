@@ -77,6 +77,20 @@ class TestParseDate:
         with pytest.raises(ValueError):
             p.parse_date("NOTADATE!!!")
 
+    def test_dec_jan_rollover_31dec_in_jan_email(self):
+        """31 Dec in a 1 Jan email must be stamped the *prior* year."""
+        email_date = datetime(2027, 1, 1)
+        assert p.parse_date("31 Dec", email_date) == "2026-12-31"
+
+    def test_dec_jan_rollover_no_rollback_for_mid_year(self):
+        """A May date in a June email must NOT be rolled back."""
+        email_date = datetime(2026, 6, 1)
+        assert p.parse_date("15 May", email_date) == "2026-05-15"
+
+    def test_dec_jan_rollover_year_present_unaffected(self):
+        """Full-year strings bypass the rollover guard entirely."""
+        assert p.parse_date("31/12/2026") == "2026-12-31"
+
 
 # ---------------------------------------------------------------------------
 # extract_text
