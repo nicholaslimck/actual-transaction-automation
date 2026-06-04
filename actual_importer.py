@@ -34,6 +34,13 @@ class ActualImporter:
             logger.error("Connection error: %s", e)
             return False
 
+    _CLI_FIELDS = {"date", "amount", "imported_id", "payee_name", "notes", "category", "cleared"}
+
+    @staticmethod
+    def _sanitize(txns: list[dict]) -> list[dict]:
+        """Strip internal-only fields not accepted by the Actual CLI."""
+        return [{k: v for k, v in t.items() if k in ActualImporter._CLI_FIELDS} for t in txns]
+
     def import_transactions(self, account_id: str, transactions: list[dict]) -> dict:
         """Import transactions to an account.
 
@@ -52,8 +59,10 @@ class ActualImporter:
 
         cmd = ["transactions", "import", "--account", account_id, "--file", "-"]
 
+        # Strip internal-only fields before sending to CLI
+        clean = self._sanitize(transactions)
         # Pipe JSON data via stdin
-        result = self._run(cmd, input_data=json.dumps(transactions))
+        result = self._run(cmd, input_data=json.dumps(clean))
         if result.returncode == 0:
             try:
                 raw = json.loads(result.stdout)
