@@ -169,3 +169,157 @@ def test_different_transactions_have_different_imported_ids():
     assert len(txns_a) == 1
     assert len(txns_b) == 1
     assert txns_a[0]["imported_id"] != txns_b[0]["imported_id"]
+
+
+# ---------------------------------------------------------------------------
+# Auto-repayment tests (new format)
+# ---------------------------------------------------------------------------
+
+
+def test_auto_repayment_basic():
+    """Auto-repayment email: positive amount, proper payee, date from header."""
+    body = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "You have paid the statement due for your May statement. "
+        "Payment Amount: SGD 882.90 "
+        "Deducted from: Mari Savings Account ending 7744."
+    )
+    email = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["amount"] == 88290        # positive = inflow
+    assert txn["payee_name"] == "MariCard Auto Repayment"
+    assert txn["date"] == "2026-06-05"
+    assert "From Mari Savings *7744" in txn["notes"]
+    assert "May statement" in txn["notes"]
+    assert txn["account_last4"] is None
+    assert txn["imported_id"].startswith("mari-repay:")
+
+
+def test_auto_repayment_no_savings_info():
+    """Resilient when savings account detail is missing."""
+    body = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "You have paid the statement due for your June statement. "
+        "Payment Amount: SGD 450.00"
+    )
+    email = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["amount"] == 45000
+    assert txn["notes"] == "June statement"  # no savings part
+
+
+def test_auto_repayment_subject_trigger():
+    """Autopay email routed correctly even with minimal body match."""
+    body = "auto repayment to your Mari Credit Card. Payment Amount: SGD 120.50"
+    email = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 12050
+
+
+def test_auto_repayment_does_not_affect_standard_txns():
+    """Regular purchase emails should still parse as before (not as repayment)."""
+    body = (
+        "You have made a payment to GRAB on your credit card ending 1111.\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 10:00 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    email = make_email(subject="Transaction Notification", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -980   # negative = outflow
+    assert txns[0]["payee_name"] == "GRAB"
+
+
+def test_auto_repayment_deterministic_id():
+    """Same repayment email -> same imported_id."""
+    body = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "Payment Amount: SGD 200.00 "
+        "Deducted from: Mari Savings Account ending 7744."
+    )
+    email = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns_a = parser.parse(email)
+    txns_b = parser.parse(email)
+    assert txns_a[0]["imported_id"] == txns_b[0]["imported_id"]
+
+
+def test_auto_repayment_non_matching_body_returns_empty():
+    """Auto-repayment subject but body lacks Payment Amount -> empty."""
+    body = "Your auto repayment to your Mari Credit Card is successful. Some other content without amount."
+    email = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+    assert txns == []
+
+
+def test_auto_repayment_repayment_body_standard_subject_not_routed():
+    """Repayment-like body but standard subject -> not routed to auto-repayment."""
+    body = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "Payment Amount: SGD 200.00"
+    )
+    email = make_email(
+        subject="Transaction Notification",
+        body_text=body,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+    # Standard subject -> _parse_alert path -> no match -> empty
+    assert txns == []
+
+
+def test_auto_repayment_different_statement_produces_different_id():
+    """Same amount, same day, different statement period -> different imported_id."""
+    body_may = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "You have paid the statement due for your May statement. "
+        "Payment Amount: SGD 500.00 "
+        "Deducted from: Mari Savings Account ending 7744."
+    )
+    body_jun = (
+        "Your auto repayment to your Mari Credit Card is successful. "
+        "You have paid the statement due for your June statement. "
+        "Payment Amount: SGD 500.00 "
+        "Deducted from: Mari Savings Account ending 7744."
+    )
+    email_may = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body_may,
+        email_date=datetime(2026, 6, 5, tzinfo=timezone.utc),
+    )
+    email_jun = make_email(
+        subject="Your auto repayment is successful",
+        body_text=body_jun,
+        email_date=datetime(2026, 7, 5, tzinfo=timezone.utc),
+    )
+    txn_may = parser.parse(email_may)[0]
+    txn_jun = parser.parse(email_jun)[0]
+    assert txn_may["imported_id"] != txn_jun["imported_id"]
