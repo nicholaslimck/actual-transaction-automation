@@ -48,7 +48,10 @@ class DedupCache:
 
     def close(self):
         if self._conn:
-            self._conn.close()
+            try:
+                self._conn.close()
+            except Exception:
+                logger.debug("Error closing dedup database", exc_info=True)
             self._conn = None
 
     def _prune_old(self):

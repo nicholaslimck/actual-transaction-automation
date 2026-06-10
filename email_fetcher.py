@@ -83,7 +83,7 @@ class EmailFetcher:
             email_date_parsed = None
             try:
                 email_date_parsed = parsedate_to_datetime(date_str)
-            except Exception:
+            except (ValueError, TypeError):
                 pass
 
             messages.append({
@@ -101,7 +101,10 @@ class EmailFetcher:
     def mark_as_seen(self, raw_id: str):
         """Mark a message as read so we don't re-process it."""
         if self.conn:
-            self.conn.store(raw_id, "+FLAGS", "\\Seen")
+            try:
+                self.conn.store(raw_id, "+FLAGS", "\\Seen")
+            except Exception:
+                logger.warning("Failed to mark message %s as seen", raw_id, exc_info=True)
 
     @staticmethod
     def _decode_header(value):

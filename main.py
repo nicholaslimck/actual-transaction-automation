@@ -7,11 +7,19 @@ from bank_parsers.registry import get_parser, all_parsers
 from bank_parsers.dedup import DedupCache
 from logging_config import setup_logging
 
-logger = logging.getLogger("main")
+logger = logging.getLogger(__name__)
 
 def load_config(path):
-    with open(path) as f:
-        return yaml.safe_load(f)
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Error: Config file not found: {path}", file=sys.stderr)
+        print("Create config.local.yaml from config.yaml template.", file=sys.stderr)
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"Error: Invalid YAML in {path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 def group_accounts_by_sender(config: dict) -> dict[str, list[dict]]:
     """Group configured accounts by their email sender address."""

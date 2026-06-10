@@ -11,6 +11,7 @@ actual:
   server_url: ""       # e.g. http://192.168.1.100:5006
   password: ""         # Actual server password
   budget_id: ""        # Budget UUID from Settings > Advanced
+  # encryption_password: ""  # Optional: encryption key if budget uses end-to-end encryption
 
 # Each entry maps a bank email sender to an Actual account ID.
 # Multiple entries can share the same bank or sender for multi-account support.
