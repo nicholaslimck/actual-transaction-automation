@@ -17,6 +17,7 @@ def _make_fake_resp(payload: dict) -> MagicMock:
     fake = MagicMock()
     fake.__enter__ = lambda s: s
     fake.__exit__ = MagicMock(return_value=False)
+    fake.status = 200
     fake.read.return_value = json.dumps(payload).encode()
     return fake
 
