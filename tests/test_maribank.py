@@ -323,3 +323,104 @@ def test_auto_repayment_different_statement_produces_different_id():
     txn_may = parser.parse(email_may)[0]
     txn_jun = parser.parse(email_jun)[0]
     assert txn_may["imported_id"] != txn_jun["imported_id"]
+
+
+# ---------------------------------------------------------------------------
+# Foreign currency tests (following Trust parser pattern)
+# ---------------------------------------------------------------------------
+
+
+def test_foreign_currency_eur():
+    """EUR transaction (Booking.com) -> converted to SGD, cleared=False, FX notes."""
+    body = (
+        "You have made a payment to Hotel at Booking.com on your credit card ending 1730.\n"
+        "Transaction Time:\n"
+        "10 Jun 2026 20:21 SGT\n"
+        "Amount:\n"
+        "EUR 103.50"
+    )
+    email = make_email(
+        subject="Awesome! Your payment is successful",
+        body_text=body,
+        email_date=datetime(2026, 6, 10, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    txn = txns[0]
+    # EUR 103.50 * ~1.45 fallback = ~150.08 SGD = ~15008 cents
+    assert txn["amount"] < -10000 and txn["amount"] > -20000
+    assert txn["payee_name"] == "Hotel at Booking.com"
+    assert txn["date"] == "2026-06-10"
+    assert "EUR" in txn["notes"]
+    assert "103.50" in txn["notes"]
+    assert "@" in txn["notes"]
+    assert txn["cleared"] == False
+    assert txn["account_last4"] == "1730"
+    assert txn["imported_id"].startswith("mari:")
+
+
+def test_foreign_currency_usd():
+    """USD transaction -> converted to SGD, cleared=False, FX notes."""
+    body = (
+        "You have made a payment to Amazon AWS on your credit card ending 1730.\n"
+        "Transaction Time:\n"
+        "10 Jun 2026 14:00 SGT\n"
+        "Amount:\n"
+        "USD 49.99"
+    )
+    email = make_email(subject="Awesome! Your payment is successful", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["payee_name"] == "Amazon AWS"
+    assert "USD" in txn["notes"]
+    assert "49.99" in txn["notes"]
+    assert txn["cleared"] == False
+
+
+def test_foreign_currency_unknown_rate_results_in_none():
+    """Unknown currency with no fallback rate -> returns None (email stays unread)."""
+    body = (
+        "You have made a payment to Something on your credit card ending 1730.\n"
+        "Transaction Time:\n"
+        "10 Jun 2026 14:00 SGT\n"
+        "Amount:\n"
+        "XYZ 50.00"
+    )
+    email = make_email(subject="payment", body_text=body)
+    txns = parser.parse(email)
+    # XYZ has no fallback rate, live fetch likely fails -> None -> empty list
+    assert txns == []
+
+
+def test_sgd_txn_cleared_true():
+    """SGD transaction includes cleared=True explicitly."""
+    body = (
+        "You have made a payment to GRAB on your credit card ending 1111.\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 10:00 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    email = make_email(subject="Transaction Notification", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["cleared"] == True
+
+
+def test_strategy2_fallback_sgd():
+    """Strategy-2 fallback still works with SGD."""
+    body = (
+        "Payment to KOPITIAM on your card\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 12:00 SGT\n"
+        "Amount:\n"
+        "SGD 5.50"
+    )
+    email = make_email(subject="Transaction Notification", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -550
+    assert txns[0]["payee_name"] == "KOPITIAM"
+    assert txns[0]["cleared"] == True
+    assert txns[0]["account_last4"] is None

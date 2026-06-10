@@ -1,5 +1,6 @@
 """Parser for MariBank transaction alert emails."""
 from . import BaseParser
+from .fx import sgd_from
 import re
 import logging
 from datetime import datetime
@@ -133,65 +134,100 @@ class MaribankParser(BaseParser):
         }
 
     def _parse_alert(self, text: str, email_data: dict) -> dict | None:
-        """Parse the structured Maribank email.
+        """Parse the structured Maribank email (SGD or foreign currency).
 
-        Pattern:
+        Pattern (SGD):
           You have made a payment to <MERCHANT> on your credit card ending XXXX.
           Transaction Time:
           <DATE> <TIME> SGT
           Amount:
           SGD <AMOUNT>
+
+        Pattern (foreign):
+          ... Amount: EUR <AMOUNT>
         """
         # Strategy 1: Full structured format
         m = re.search(
-            r"made\s+a\s+payment\s+to\s+(.+?)(?:\s+on\s+your\s+|\s*$)",
+            r"made\s+a\s+payment\s+to\s+(.+?)(?:\s+on\s+your\s+|$)",
             text, re.IGNORECASE
         )
         date_m = re.search(r"Transaction\s*Time[:\s]*\n?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})\s+(\d{2}:\d{2})", text, re.IGNORECASE)
-        amount_m = re.search(r"Amount[:\s]*\n?\s*SGD\s*([0-9,.]+)", text, re.IGNORECASE)
+        amount_m = re.search(r"Amount[:\s]*\n?\s*([A-Z]{3})\s*([0-9,.]+)", text, re.IGNORECASE)
         card_m = re.search(r"(?:card\s+ending|card\s+\*{3,}|XXXX)\s*(\d{4})", text, re.IGNORECASE)
 
         if m and date_m and amount_m:
-            merchant = m.group(1).strip().rstrip(".")
-            date_str = date_m.group(1).strip()
-            amount_str = amount_m.group(1)
+            txn = self._build_txn(
+                cur=amount_m.group(1).upper(),
+                amount_str=amount_m.group(2),
+                merchant=m.group(1).strip().rstrip("."),
+                date_str=date_m.group(1).strip(),
+                card_m=card_m,
+                txn_time=date_m.group(2) if date_m.lastindex >= 2 else "",
+            )
+            if txn:
+                return txn
 
-            card_note = ""
-            if card_m:
-                card_note = f"MariCard *{card_m.group(1)}"
-
-            parsed_date = self.parse_date(date_str)
-            amount_cents = -self.to_cents(amount_str)
-            txn_time = date_m.group(2) if date_m.lastindex >= 2 else ""
-            return {
-                "date": parsed_date,
-                "amount": amount_cents,
-                "payee_name": merchant,
-                "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant, txn_time),
-                "notes": card_note,
-                "account_last4": card_m.group(1) if card_m else None,
-            }
-
-        # Strategy 2: Looser fallback for MariBank email variants where the phrasing
-        # differs from "made a payment to ... on your" (e.g. future template changes).
-        # Fires when Strategy-1 fails but Transaction Time + Amount are still present.
-        # If both strategies produce a result, Strategy-1 takes precedence.
+        # Strategy 2: Looser fallback
         fallback = re.search(
-            r"to\s+(.+?)(?:\s+on\s+your\s+card|\s*$)",
+            r"to\s+(.+?)(?:\s+on\s+your\s+card|$)",
             text, re.IGNORECASE
         )
         if fallback and date_m and amount_m:
-            parsed_date = self.parse_date(date_m.group(1).strip())
-            amount_cents = -self.to_cents(amount_m.group(1))
-            payee = fallback.group(1).strip().rstrip(".")
-            txn_time = date_m.group(2) if date_m.lastindex >= 2 else ""
-            return {
-                "date": parsed_date,
-                "amount": amount_cents,
-                "payee_name": payee,
-                "imported_id": self._content_id("mari", parsed_date, amount_cents, payee, txn_time),
-                "notes": "",
-                "account_last4": None,
-            }
+            txn = self._build_txn(
+                cur=amount_m.group(1).upper(),
+                amount_str=amount_m.group(2),
+                merchant=fallback.group(1).strip().rstrip("."),
+                date_str=date_m.group(1).strip(),
+                card_m=None,
+                txn_time=date_m.group(2) if date_m.lastindex >= 2 else "",
+            )
+            if txn:
+                return txn
 
         return None
+
+    def _build_txn(self, cur: str, amount_str: str, merchant: str, date_str: str,
+                   card_m, txn_time: str) -> dict | None:
+        """Build transaction dict from parsed fields, handling FX conversion.
+
+        Follows the Trust parser pattern: foreign currencies are converted via
+        sgd_from(), annotated in notes with original amount and rate, and
+        marked cleared=False. SGD transactions have cleared=True explicitly.
+        """
+        amount_raw = self.to_cents(amount_str)
+
+        if cur == "SGD":
+            amount_cents = -amount_raw
+            cleared = True
+            fx_note = ""
+        else:
+            sgd_cents, rate = sgd_from(cur, amount_raw)
+            if rate is None:
+                logger.error(
+                    "MariBank foreign txn skipped: no FX rate for %s (%s %s). "
+                    "Email left unread to retry.",
+                    cur, cur, amount_str,
+                )
+                return None
+            amount_cents = -sgd_cents
+            cleared = False
+            fx_note = f"{cur}{amount_str} @ {rate:.4f}"
+
+        parsed_date = self.parse_date(date_str)
+
+        card_note = ""
+        if card_m:
+            card_note = f"MariCard *{card_m.group(1)}"
+
+        notes_parts = [p for p in [card_note, fx_note] if p]
+        notes = " | ".join(notes_parts)
+
+        return {
+            "date": parsed_date,
+            "amount": amount_cents,
+            "payee_name": merchant,
+            "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant, txn_time),
+            "notes": notes,
+            "account_last4": card_m.group(1) if card_m else None,
+            "cleared": cleared,
+        }
