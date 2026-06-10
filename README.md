@@ -101,7 +101,7 @@ Use `self._content_id(prefix, date, amount, payee)` for a stable, content-hash `
 
 ## Overseas transactions
 
-Trust Bank overseas transactions are converted to SGD using live exchange rates from [open.er-api.com](https://open.er-api.com) (free, no API key). Falls back to approximate rates if the API is unreachable.
+Overseas transactions are converted to SGD using live exchange rates from [open.er-api.com](https://open.er-api.com) (free, no API key). Falls back to approximate rates if the API is unreachable.
 
 ## Project structure
 
