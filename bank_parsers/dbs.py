@@ -138,7 +138,7 @@ class DbsParser(BaseParser):
         if not (date_m and amount_m and to_m):
             return None
 
-        merchant = re.sub(r"\s+", " ", to_m.group(1).strip()).split("\n")[0].strip()
+        merchant = self._clean_merchant(to_m.group(1))
         notes = from_m.group(1).strip() if from_m else ""
 
         return {
@@ -182,10 +182,7 @@ class DbsParser(BaseParser):
         if date_m and amount_m and to_m:
             date_str = date_m.group(1).strip()
             amount_str = amount_m.group(1)
-            merchant = to_m.group(1).strip().rstrip(".")
-            # Clean up merchant - remove trailing whitespace/newlines
-            merchant = re.sub(r"\s+", " ", merchant).strip()
-            merchant = merchant.split("\n")[0].strip()
+            merchant = self._clean_merchant(to_m.group(1))
 
             imported_id = ref_m.group(1) if ref_m else msg_id
             notes = ""

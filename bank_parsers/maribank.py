@@ -22,8 +22,7 @@ class MaribankParser(BaseParser):
     Subject: likely "Transaction Notification" or similar
     """
 
-    # Known non-transaction subject keywords — skip early
-    _NON_TX_SUBJECTS = [
+    subject_exclude_keywords = [
         "email address has been updated",
         "welcome to maribank",
         "password",
@@ -42,30 +41,12 @@ class MaribankParser(BaseParser):
     def sender_pattern(self) -> str:
         return r"notifications@maribank\.sg|(?<!noreply@)maribank\.sg"
 
-    def parse(self, email_data: dict) -> list[dict]:
-        subject = email_data.get("subject", "")
-        subject_lower = subject.lower()
-
-        # Non-transaction emails — skip before any parsing
-        if any(kw in subject_lower for kw in self._NON_TX_SUBJECTS):
-            logger.debug("Skipping non-transaction MariBank email: %s", subject)
-            return []
-
-        # Shared text extraction (single call, used by both paths)
-        text = self.extract_text(
-            email_data.get("body_text", ""), email_data.get("body_html", "")
-        )
-        logger.debug("%s raw text:\n%s", self.bank_name, text[:2000])
-
-        # Route by subject
+    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
+        """Route to auto-repayment or structured alert based on subject."""
+        subject_lower = email_data.get("subject", "").lower()
         if "auto repayment" in subject_lower:
-            txn = self._parse_auto_repayment(text, email_data)
-        else:
-            txn = self._parse_alert(text, email_data)
-
-        if not txn:
-            logger.warning("Could not parse %s. Subject: %s", self.bank_name, subject)
-        return [txn] if txn else []
+            return self._parse_auto_repayment(text, email_data)
+        return self._parse_structured_alert(text, email_data)
 
     def _parse_auto_repayment(self, text: str, email_data: dict) -> dict | None:
         """Parse the Maribank auto repayment (credit card bill payment) email format.
@@ -78,8 +59,8 @@ class MaribankParser(BaseParser):
             Deducted from: Mari Savings Account ending <LAST4>.
 
         WARNING: amount is returned AS-IS (positive = inflow to credit card).
-        Unlike _parse_alert which negates for outflows, this method does NOT
-        negate. This is intentional — do NOT add a negation here.
+        Unlike _parse_structured_alert which negates for outflows, this method
+        does NOT negate. This is intentional — do NOT add a negation here.
         """
         if "auto repayment" not in text.lower():
             return None
@@ -133,7 +114,7 @@ class MaribankParser(BaseParser):
             "account_last4": None,
         }
 
-    def _parse_alert(self, text: str, email_data: dict) -> dict | None:
+    def _parse_structured_alert(self, text: str, email_data: dict) -> dict | None:
         """Parse the structured Maribank email (SGD or foreign currency).
 
         Pattern (SGD):

@@ -28,19 +28,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Non-transaction subject keywords — skip promos, newsletters, etc.
-_NON_TX_SUBJECTS = [
-    "something huge",
-    "giveaway",
-    "bi-weekly scoop",
-    "what's new",
-    "your monthly",
-    "your weekly",
-]
-
 
 class HeymaxParser(BaseParser):
     """HeyMax Chocolate card miles confirmation parser."""
+
+    subject_exclude_keywords = [
+        "something huge",
+        "giveaway",
+        "bi-weekly scoop",
+        "what's new",
+        "your monthly",
+        "your weekly",
+        "confirmed",
+    ]
+    subject_include_keywords = ["earned"]
 
     @property
     def bank_name(self) -> str:
@@ -49,19 +50,6 @@ class HeymaxParser(BaseParser):
     @property
     def sender_pattern(self) -> str:
         return r"max@heymax\.ai"
-
-    def parse(self, email_data: dict) -> list[dict]:
-        """Skip promos and confirmed emails before body extraction/logging.
-
-        The base class logs 2000 chars of raw text for every email; filter
-        by subject first so skipped emails never hit the log.
-        """
-        subject = email_data.get("subject", "").lower()
-        if any(kw in subject for kw in _NON_TX_SUBJECTS):
-            return []
-        if "earned" not in subject:
-            return []
-        return super().parse(email_data)
 
     def _parse_alert(self, text: str, email_data: dict) -> dict | None:
         """Extract transaction from an earned miles notification.

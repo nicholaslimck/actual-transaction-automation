@@ -88,11 +88,7 @@ class CitibankParser(BaseParser):
             date_str = date_m.group(1).strip()
             amount_str = amount_m.group(1)
             merchant_raw = details_m.group(1).strip().rstrip(".")
-
-            # Clean up merchant name - collapse whitespace, strip trailing junk
-            merchant = re.sub(r"\s+", " ", merchant_raw).strip()
-            merchant = merchant.split("\n")[0].strip()
-            merchant = merchant.strip(" -").strip()
+            merchant = self._clean_merchant(merchant_raw)
 
             notes_parts = []
             if card_m:
