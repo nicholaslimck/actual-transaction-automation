@@ -2,7 +2,7 @@
 
 Automatically import bank and credit card transactions into [Actual Budget](https://actualbudget.org/) by parsing email transaction alerts from Gmail.
 
-Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
+Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank, HSBC.
 
 ## How it works
 
@@ -21,6 +21,7 @@ Supports **Singapore banks**: DBS/POSB, Citibank, Trust Bank, MariBank.
 | Trust Credit Card | from_us@trustbank.sg | Local & overseas transactions |
 | Maribank Credit Card | notifications@maribank.sg | Credit card charges |
 | HeyMax Miles | max@heymax.ai | Chocolate card miles confirmed (tracking only) |
+| HSBC Credit Card | HSBC.Bank.Singapore.Limited@notification.hsbc.com.hk | Credit card charges |
 
 ## Setup
 
@@ -118,7 +119,9 @@ Overseas transactions are converted to SGD using live exchange rates from [open.
 │   ├── dbs.py              # DBS PayLah! and ibanking alerts
 │   ├── citibank.py         # Citibank credit card alerts
 │   ├── trust.py            # Trust Bank transaction alerts
-│   └── maribank.py         # MariBank transaction notifications
+│   ├── maribank.py         # MariBank transaction notifications
+│   ├── heymax.py           # HeyMax Chocolate card miles
+│   └── hsbc.py             # HSBC SG credit card alerts
 ├── data/                   # Runtime data (dedup.db) — gitignored
 ├── config.yaml             # Configuration template
 ├── config.local.yaml       # Local credentials (gitignored)

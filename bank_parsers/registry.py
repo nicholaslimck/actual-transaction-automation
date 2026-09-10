@@ -5,6 +5,7 @@ from .citibank import CitibankParser
 from .trust import TrustParser
 from .maribank import MaribankParser
 from .heymax import HeymaxParser
+from .hsbc import HsbcParser
 
 # Registered parsers -- add new ones here
 _PARSERS: list[BaseParser] = [
@@ -13,6 +14,7 @@ _PARSERS: list[BaseParser] = [
     TrustParser(),
     MaribankParser(),
     HeymaxParser(),
+    HsbcParser(),
 ]
 
 

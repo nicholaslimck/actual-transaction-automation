@@ -4,6 +4,7 @@ from bank_parsers.dbs import DbsParser
 from bank_parsers.citibank import CitibankParser
 from bank_parsers.trust import TrustParser
 from bank_parsers.maribank import MaribankParser
+from bank_parsers.hsbc import HsbcParser
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,12 @@ class TestGetParser:
         assert isinstance(parser, MaribankParser)
         assert parser.bank_name == "MariBank"
 
+    def test_hsbc_sender(self):
+        parser = get_parser("HSBC.Bank.Singapore.Limited@notification.hsbc.com.hk")
+        assert parser is not None
+        assert isinstance(parser, HsbcParser)
+        assert parser.bank_name == "HSBC"
+
     def test_unknown_sender_returns_none(self):
         assert get_parser("nobody@unknown.com") is None
 
@@ -44,8 +51,8 @@ class TestGetParser:
 # ---------------------------------------------------------------------------
 
 class TestAllParsers:
-    def test_returns_five_parsers(self):
-        assert len(all_parsers()) == 5
+    def test_returns_six_parsers(self):
+        assert len(all_parsers()) == 6
 
     def test_all_expected_bank_names_present(self):
         names = [p.bank_name for p in all_parsers()]
@@ -54,3 +61,4 @@ class TestAllParsers:
         assert "Trust Bank" in names
         assert "MariBank" in names
         assert "HeyMax" in names
+        assert "HSBC" in names
