@@ -207,7 +207,12 @@ class MaribankParser(BaseParser):
             "date": parsed_date,
             "amount": amount_cents,
             "payee_name": merchant,
-            "imported_id": self._content_id("mari", parsed_date, amount_cents, merchant, txn_time),
+            "imported_id": self._content_id(
+                "mari", parsed_date, amount_cents, merchant, txn_time,
+                # Hash the ORIGINAL currency amount, not the converted SGD
+                # figure — see BaseParser._content_id. SGD ids are unchanged.
+                amount_key=f"{cur}{amount_str}" if cur != "SGD" else None,
+            ),
             "notes": notes,
             "account_last4": card_m.group(1) if card_m else None,
             "cleared": cleared,

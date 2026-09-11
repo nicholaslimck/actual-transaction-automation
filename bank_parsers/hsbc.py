@@ -121,7 +121,12 @@ class HsbcParser(BaseParser):
             "amount": amount_cents,
             "payee_name": merchant,
             "imported_id": self._content_id(
-                "hsbc", parsed_date, amount_cents, merchant, txn_time
+                "hsbc", parsed_date, amount_cents, merchant, txn_time,
+                # Foreign txns hash on the ORIGINAL currency amount: the SGD
+                # figure is a live-rate estimate, so hashing it would mint a new
+                # id on every rate move and re-import the same email.
+                # (See BaseParser._content_id.)
+                amount_key=f"{cur}{amount_m.group(2)}" if cur != "SGD" else None,
             ),
             "notes": " | ".join(notes_parts),
             "account_last4": card_last4,

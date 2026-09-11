@@ -176,3 +176,94 @@ def test_overseas_no_rate_returns_empty(monkeypatch):
     )
     txns = parser.parse(make_email(body_text=body))
     assert txns == []
+
+
+# ---------------------------------------------------------------------------
+# H2 — overseas purchase billed in SGD (card clause precedes the date)
+# ---------------------------------------------------------------------------
+
+def test_overseas_sgd_variant_parses_real_sample():
+    """Real alert (7 Sep 2026): the "0% FX fees! ... SGD ... at <merchant>
+    with <card> on <date>" variant. Both earlier regexes missed it, so the txn
+    was dropped and the pipeline logged only "Could not parse"."""
+    body = (
+        "0% FX fees! You've spent SGD 672.96 at tripla Co., Ltd. Tokyo JP "
+        "with Freedom credit card on 7 Sep 2026 14:39SGT. "
+        "You'll receive estimated S$20.19 stockback*."
+    )
+    txns = parser.parse(
+        make_email(subject="Yay! Overseas transaction successful", body_text=body)
+    )
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["amount"] == -67296
+    assert txn["payee_name"] == "tripla Co., Ltd. Tokyo JP"
+    assert txn["date"] == "2026-09-07"
+    assert txn["notes"] == "Freedom credit card"
+    assert txn["imported_id"].startswith("trust:")
+    assert txn["cleared"] is False
+
+
+def test_overseas_sgd_variant_second_real_sample():
+    """Real alert (8 Sep 2026 email, txn dated 9 Sep)."""
+    body = (
+        "0% FX fees! You've spent SGD 867.90 at tripla Co., Ltd. Tokyo JP "
+        "with Freedom credit card on 9 Sep 2026 01:12SGT."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -86790
+    assert txns[0]["date"] == "2026-09-09"
+
+
+def test_overseas_sgd_variant_does_not_shadow_local_format():
+    """A local alert (card clause *after* the date) keeps its trust-local id."""
+    body = (
+        "You've spent SGD 45.50 at Starbucks Singapore SG on 15 May 2026 "
+        "10:30SGT with Visa Infinite ending 1234."
+    )
+    txn = parser.parse(make_email(body_text=body))[0]
+    assert txn["payee_name"] == "Starbucks"
+    assert txn["imported_id"].startswith("trust-local:")
+
+
+# ---------------------------------------------------------------------------
+# H3 — imported_id must survive FX-rate drift
+# ---------------------------------------------------------------------------
+
+def test_overseas_imported_id_stable_across_rate_drift(monkeypatch):
+    """The SGD figure is a live-rate estimate; the id must not depend on it.
+
+    Real case: one USD 176.00 alert landed as two rows — 224.63 (@1.2763) and
+    223.58 (@1.2703) — because the converted amount was hashed."""
+    body = (
+        "You've spent USD 176.00 using Freedom credit card "
+        "at PUBLIC STORAGE 21817 800-567-0759 US on 2 Sep 2026 16:45SGT"
+    )
+    monkeypatch.setattr(
+        trust_mod, "sgd_from", lambda cur, cents: (int(cents * 1.2763), 1.2763)
+    )
+    first = parser.parse(make_email(body_text=body))
+    monkeypatch.setattr(
+        trust_mod, "sgd_from", lambda cur, cents: (int(cents * 1.2703), 1.2703)
+    )
+    second = parser.parse(make_email(body_text=body))
+
+    assert len(first) == 1 and len(second) == 1
+    assert first[0]["amount"] != second[0]["amount"]          # estimate moved
+    assert first[0]["imported_id"] == second[0]["imported_id"]  # identity did not
+
+
+def test_local_imported_id_recipe_unchanged():
+    """SGD ids must stay byte-identical to rows already in Actual."""
+    import hashlib
+
+    body = (
+        "You've spent SGD 1.00 at Toast Box SG on 15 May 2026 "
+        "10:30SGT with Visa ending 1234."
+    )
+    txn = parser.parse(make_email(body_text=body))[0]
+    raw = "2026-05-15|10:30|-100|Toast Box"
+    assert txn["imported_id"] == "trust-local:" + hashlib.sha256(
+        raw.encode()
+    ).hexdigest()[:16]

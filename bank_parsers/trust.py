@@ -11,7 +11,10 @@ class TrustParser(BaseParser):
     """Trust Bank Singapore transaction alert email parser.
 
     Local: You've spent SGD <amt> at <merchant> on <date> <time>SGT with <card>.
-    Overseas: You('ve| have) spent <CUR> <amt> using <card> at <merchant> on <date> <time>SGT.
+    Overseas (foreign currency):
+        You('ve| have) spent <CUR> <amt> using <card> at <merchant> on <date> <time>SGT.
+    Overseas billed in SGD (card clause precedes the date):
+        0% FX fees! You've spent SGD <amt> at <merchant> with <card> on <date> <time>SGT.
     """
 
     @property
@@ -27,6 +30,8 @@ class TrustParser(BaseParser):
         txn = self._parse_local(text, msg_id)
         if not txn:
             txn = self._parse_overseas(text, msg_id)
+        if not txn:
+            txn = self._parse_overseas_sgd(text, msg_id)
         return txn
 
     def _parse_local(self, text, msg_id):
@@ -78,12 +83,52 @@ class TrustParser(BaseParser):
                 "date": parsed_date,
                 "amount": -sgd_cents,
                 "payee_name": merchant,
-                "imported_id": self._content_id("trust", parsed_date, -sgd_cents, merchant, txn_time),
+                "imported_id": self._content_id(
+                    "trust", parsed_date, -sgd_cents, merchant, txn_time,
+                    amount_key=f"{cur}{m.group(2)}",
+                ),
                 "notes": notes,
                 "account_last4": self.extract_last4(card_info),
                 "cleared": False,
             }
         return None
+
+    def _parse_overseas_sgd(self, text, msg_id):
+        """Overseas purchase that Trust already billed in SGD.
+
+        Pattern:
+            0% FX fees! You've spent SGD <amt> at <merchant> with <card> on <date> <time>SGT.
+
+        Distinct from _parse_local, which places the card clause *after* the
+        date ("... on <date> <time>SGT with <card>."). Trust sends this variant
+        for overseas spend billed in SGD, so there is no foreign currency and no
+        FX rate to resolve — but it is still an overseas transaction, hence
+        cleared=False. Missing this variant dropped real transactions silently:
+        the parser returned None and the pipeline logged only "Could not parse".
+        """
+        m = re.search(
+            r"You(?:'ve| have) spent SGD ([0-9,.]+) at (.+?) with (.+?) on "
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT",
+            text, re.IGNORECASE
+        )
+        if not m:
+            return None
+        parsed_date = self.parse_date(m.group(4).strip())
+        amount_cents = -self.to_cents(m.group(1))
+        merchant = self._clean_merchant(m.group(2))
+        card_name = m.group(3).strip()
+        return {
+            "date": parsed_date,
+            "amount": amount_cents,
+            "payee_name": merchant,
+            "imported_id": self._content_id(
+                "trust", parsed_date, amount_cents, merchant, m.group(5),
+                amount_key=f"SGD{m.group(1)}",
+            ),
+            "notes": card_name,
+            "account_last4": self.extract_last4(card_name),
+            "cleared": False,
+        }
 
     @staticmethod
     def _clean_merchant(raw):

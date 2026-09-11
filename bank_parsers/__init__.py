@@ -37,14 +37,23 @@ class BaseParser(ABC):
         ...
 
     @staticmethod
-    def _content_id(prefix: str, date: str, amount: int, payee: str, time: str = "") -> str:
+    def _content_id(prefix: str, date: str, amount: int, payee: str, time: str = "",
+                    amount_key: str | None = None) -> str:
         """Stable content-hash transaction id.
 
         Including `time` disambiguates two genuinely separate purchases with the
         same date, amount, and payee (e.g. two identical coffees). Falls back to
         the date-only recipe when the email carries no time component.
+
+        `amount_key` replaces the amount **in the hash only**. FX-converted
+        transactions must pass their ORIGINAL currency amount (e.g. "USD148.30")
+        rather than the converted SGD figure: the conversion is a live-rate
+        estimate, so hashing it changes the id whenever the rate moves and the
+        same email re-imports as a duplicate. Leave it None for SGD amounts,
+        whose ids must stay byte-identical to previously imported rows.
         """
-        raw = f"{date}|{time}|{amount}|{payee}" if time else f"{date}|{amount}|{payee}"
+        key = amount if amount_key is None else amount_key
+        raw = f"{date}|{time}|{key}|{payee}" if time else f"{date}|{key}|{payee}"
         return f"{prefix}:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
     @abstractmethod
