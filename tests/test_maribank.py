@@ -424,3 +424,144 @@ def test_strategy2_fallback_sgd():
     assert txns[0]["payee_name"] == "KOPITIAM"
     assert txns[0]["cleared"] == True
     assert txns[0]["account_last4"] is None
+
+
+# ---------------------------------------------------------------------------
+# "Your credit card repayment is successful" (new repayment format)
+# ---------------------------------------------------------------------------
+
+# Faithful excerpt of the real MariBank email — HTML-only body, with the CSS
+# noise and the split <td> layout (label in one cell, value in the next).
+MARI_REPAYMENT_HTML = """\
+<html><head><style type="text/css">
+@media (max-width: 600px) { .max-600px_px-16px { padding-left: 16px !important } }
+.darkmode { background: #000000 !important; color: #FFFFFF !important; }
+</style></head><body>
+  <span>Maribank</span>
+  <table border=0 cellpadding=0 cellspacing=0 width=100% role=presentation>
+    <tr><td>Your repayment to your credit card ending (6600) is successful.</td></tr>
+    <tr><td>Payment Amount:</td></tr>
+    <tr><td>SGD 2,000.00</td></tr>
+    <tr><td>Deducted from:</td></tr>
+    <tr><td>Mari Savings Account ending 7744</td></tr>
+    <tr><td>Transaction Time:</td></tr>
+    <tr><td>26 Sep 2026 19:13</td></tr>
+    <tr><td>For assistance, please reach out to our Customer Service team.
+        In-app Live Chat +656****8688 MariBank Singapore Pte Ltd (UEN: 202106516C)
+        This is a system generated message, please do not reply to this email.</td></tr>
+  </table>
+</body></html>
+"""
+
+
+def test_credit_card_repayment_real_email():
+    """Real-format email: positive amount, clean payee, date from body."""
+    email = make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+        email_date=datetime(2026, 9, 26, 11, 13, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["amount"] == 200000           # POSITIVE = inflow to the card
+    assert txn["payee_name"] == "MariCard Repayment"
+    assert txn["date"] == "2026-09-26"        # from "26 Sep 2026 19:13"
+    assert txn["notes"] == "MariCard *6600 | From Mari Savings *7744"
+    assert txn["account_last4"] == "6600"
+    assert txn["cleared"] is True
+    assert txn["imported_id"].startswith("mari-repay:")
+
+
+def test_credit_card_repayment_payee_is_clean():
+    """Regression: payee must never absorb the rest of the collapsed email."""
+    email = make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+    )
+    payee = parser.parse(email)[0]["payee_name"]
+    assert payee == "MariCard Repayment"
+    assert "successful" not in payee.lower()
+    assert "Mari Savings" not in payee
+    assert len(payee) < 40
+
+
+def test_credit_card_repayment_routed_by_body_signature():
+    """Body signature routes correctly even with an unexpected subject."""
+    email = make_email(
+        subject="Transaction Notification",
+        body_html=MARI_REPAYMENT_HTML,
+    )
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 200000
+    assert txns[0]["payee_name"] == "MariCard Repayment"
+
+
+def test_credit_card_repayment_deterministic_id():
+    email_a = make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+    )
+    email_b = make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+    )
+    assert parser.parse(email_a)[0]["imported_id"] == parser.parse(email_b)[0]["imported_id"]
+
+
+def test_credit_card_repayment_no_amount_returns_empty():
+    """Repayment subject but no Payment Amount -> unparsed (email stays unread)."""
+    body = "Your repayment to your credit card ending (6600) is successful. No amount here."
+    email = make_email(
+        subject="Your credit card repayment is successful", body_text=body
+    )
+    assert parser.parse(email) == []
+
+
+def test_credit_card_repayment_missing_savings_still_parses():
+    """Resilient when the source savings account detail is absent."""
+    body = (
+        "Your repayment to your credit card ending (6600) is successful. "
+        "Payment Amount: SGD 1,234.56 "
+        "Transaction Time: 03 Oct 2026 09:05"
+    )
+    email = make_email(
+        subject="Your credit card repayment is successful", body_text=body
+    )
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == 123456
+    assert txns[0]["date"] == "2026-10-03"
+    assert txns[0]["notes"] == "MariCard *6600"
+
+
+def test_repayment_format_does_not_break_card_spend():
+    """Standard spend alerts must still be negative inflows/outflows as before."""
+    body = (
+        "You have made a payment to GRAB on your credit card ending 1730.\n"
+        "Transaction Time:\n"
+        "01 Jun 2026 10:00 SGT\n"
+        "Amount:\n"
+        "SGD 9.80"
+    )
+    email = make_email(subject="Awesome! Your payment is successful", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -980          # negative = outflow (unchanged)
+    assert txns[0]["payee_name"] == "GRAB"
+    assert txns[0]["account_last4"] == "1730"
+
+
+def test_structured_payee_never_swallows_collapsed_body():
+    """Single-line body (HTML stripped): payee must stop at the next field."""
+    body = (
+        "You have made a payment to SOME MERCHANT "
+        "Transaction Time: 15 May 2026 14:30 Amount: SGD 12.00"
+    )
+    email = make_email(subject="Transaction Notification", body_text=body)
+    txns = parser.parse(email)
+    assert len(txns) == 1
+    assert txns[0]["payee_name"] == "SOME MERCHANT"
+    assert txns[0]["amount"] == -1200

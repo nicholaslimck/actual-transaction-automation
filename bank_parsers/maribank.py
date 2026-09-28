@@ -42,10 +42,21 @@ class MaribankParser(BaseParser):
         return r"notifications@maribank\.sg|(?<!noreply@)maribank\.sg"
 
     def _parse_alert(self, text: str, email_data: dict) -> dict | None:
-        """Route to auto-repayment or structured alert based on subject."""
+        """Route to the right handler based on subject (and body signature)."""
         subject_lower = email_data.get("subject", "").lower()
         if "auto repayment" in subject_lower:
             return self._parse_auto_repayment(text, email_data)
+        # "Your credit card repayment is successful" (new format). MUST run
+        # before _parse_structured_alert: that method's loose fallback regex
+        # would otherwise swallow the rest of the collapsed email as the payee.
+        if (
+            "credit card repayment" in subject_lower
+            or re.search(
+                r"repayment\s+to\s+your\s+credit\s+card\s+ending",
+                text, re.IGNORECASE,
+            )
+        ):
+            return self._parse_credit_card_repayment(text, email_data)
         return self._parse_structured_alert(text, email_data)
 
     def _parse_auto_repayment(self, text: str, email_data: dict) -> dict | None:
@@ -114,6 +125,81 @@ class MaribankParser(BaseParser):
             "account_last4": None,
         }
 
+    def _parse_credit_card_repayment(self, text: str, email_data: dict) -> dict | None:
+        """Parse the "Your credit card repayment is successful" email format.
+
+        HTML-only body, collapsed to a single line by extract_text():
+
+            Your repayment to your credit card ending (6600) is successful.
+            Payment Amount: SGD 2,000.00
+            Deducted from: Mari Savings Account ending 7744
+            Transaction Time: 26 Sep 2026 19:13
+
+        SAME event class as _parse_auto_repayment: money leaves the Mari
+        Savings account and settles the Mari Credit Card, so the amount is
+        returned AS-IS (positive = inflow to the credit card account).
+        Do NOT negate here — a negative value would increase the card debt
+        instead of reducing it.
+        """
+        amount_m = re.search(
+            r"(?:Payment\s+)?Amount:\s*([A-Z]{3})?\s*([0-9,.]+)",
+            text, re.IGNORECASE,
+        )
+        if not amount_m:
+            return None
+
+        currency = (amount_m.group(1) or "SGD").upper()
+        if currency != "SGD":
+            # Repayments are always SGD; a foreign currency means we caught a
+            # card spend alert — leave it to the structured path.
+            return None
+
+        card_m = re.search(
+            r"credit\s+card\s+ending\s*\(?(\d{4})\)?", text, re.IGNORECASE
+        )
+        savings_m = re.search(
+            r"Mari\s+Savings\s+Account\s+ending\s+(\d{4})", text, re.IGNORECASE
+        )
+        time_m = re.search(
+            r"Transaction\s*Time:?\s*(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\s+(\d{1,2}:\d{2})",
+            text, re.IGNORECASE,
+        )
+
+        # Positive = inflow to the credit card account (see docstring).
+        amount_cents = self.to_cents(amount_m.group(2))
+
+        if time_m:
+            parsed_date = self.parse_date(time_m.group(1).strip())
+            txn_time = time_m.group(2)
+        else:
+            # No transaction time in the body — fall back to the email date.
+            email_dt = email_data.get("email_date") or datetime.now()
+            parsed_date = email_dt.strftime("%Y-%m-%d")
+            txn_time = ""
+
+        card_last4 = card_m.group(1) if card_m else ""
+        savings_last4 = savings_m.group(1) if savings_m else ""
+
+        notes = " | ".join(
+            p for p in [
+                f"MariCard *{card_last4}" if card_last4 else "",
+                f"From Mari Savings *{savings_last4}" if savings_last4 else "",
+            ] if p
+        )
+
+        payee = "MariCard Repayment"
+        return {
+            "date": parsed_date,
+            "amount": amount_cents,  # positive = inflow (see docstring)
+            "payee_name": payee,
+            "imported_id": self._content_id(
+                "mari-repay", parsed_date, amount_cents, payee, txn_time
+            ),
+            "notes": notes,
+            "account_last4": card_last4 or None,
+            "cleared": True,
+        }
+
     def _parse_structured_alert(self, text: str, email_data: dict) -> dict | None:
         """Parse the structured Maribank email (SGD or foreign currency).
 
@@ -129,7 +215,8 @@ class MaribankParser(BaseParser):
         """
         # Strategy 1: Full structured format
         m = re.search(
-            r"made\s+a\s+payment\s+to\s+(.+?)(?:\s+on\s+your\s+|$)",
+            r"made\s+a\s+payment\s+to\s+(.+?)"
+            r"(?:\s+on\s+your\s+|\s+(?:Transaction\s*Time|Amount)\s*:|\n|$)",
             text, re.IGNORECASE
         )
         date_m = re.search(r"Transaction\s*Time[:\s]*\n?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})\s+(\d{2}:\d{2})", text, re.IGNORECASE)
@@ -148,9 +235,12 @@ class MaribankParser(BaseParser):
             if txn:
                 return txn
 
-        # Strategy 2: Looser fallback
+        # Strategy 2: Looser fallback. The terminator intentionally includes the
+        # structured field labels/newlines so the payee can never swallow the
+        # whole (single-line) email body.
         fallback = re.search(
-            r"to\s+(.+?)(?:\s+on\s+your\s+card|$)",
+            r"to\s+(.+?)"
+            r"(?:\s+on\s+your\s+card|\s+(?:Transaction\s*Time|Amount|Deducted\s+from)\s*:|\n|$)",
             text, re.IGNORECASE
         )
         if fallback and date_m and amount_m:
