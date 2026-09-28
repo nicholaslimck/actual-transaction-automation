@@ -122,8 +122,16 @@ class MaribankParser(BaseParser):
                 "mari-repay", parsed_date, amount_cents, id_key
             ),
             "notes": notes,
-            "account_last4": None,
+            # The alert carries no card number, but it is always MariBank's own
+            # card: stamp it so this keeps landing on the Maribank Credit entry
+            # (account_filter "1730") rather than a savings-filtered entry.
+            "account_last4": self.MARI_CARD_LAST4,
         }
+
+    # MariBank's own credit-card ending. "Your auto repayment is successful"
+    # alerts carry no card number, so _parse_auto_repayment stamps this to keep
+    # them landing on the MariBank Credit entry (account_filter "1730").
+    MARI_CARD_LAST4 = "1730"
 
     def _parse_credit_card_repayment(self, text: str, email_data: dict) -> dict | None:
         """Parse the "Your credit card repayment is successful" email format.
@@ -135,11 +143,17 @@ class MaribankParser(BaseParser):
             Deducted from: Mari Savings Account ending 7744
             Transaction Time: 26 Sep 2026 19:13
 
-        SAME event class as _parse_auto_repayment: money leaves the Mari
-        Savings account and settles the Mari Credit Card, so the amount is
-        returned AS-IS (positive = inflow to the credit card account).
-        Do NOT negate here — a negative value would increase the card debt
-        instead of reducing it.
+        This is MariBank's BILL-PAYMENT notification: the card being paid is
+        ANOTHER bank's card, and the money leaves the Mari Savings account.
+        (Repayments to MariBank's own card use the "auto repayment" format —
+        see _parse_auto_repayment.)
+
+        The debit is therefore posted on the SOURCE account: `amount` is
+        NEGATIVE (money leaving Mari Savings) and `account_last4` is the
+        *savings* ending, so the config entry whose `account_filter` matches
+        that account picks it up. The payee names the destination card
+        ("credit card ending (6600)") so an Actual payee rule can tie the
+        payment to the card account being settled.
         """
         amount_m = re.search(
             r"(?:Payment\s+)?Amount:\s*([A-Z]{3})?\s*([0-9,.]+)",
@@ -165,8 +179,11 @@ class MaribankParser(BaseParser):
             text, re.IGNORECASE,
         )
 
-        # Positive = inflow to the credit card account (see docstring).
-        amount_cents = self.to_cents(amount_m.group(2))
+        card_last4 = card_m.group(1) if card_m else ""
+        savings_last4 = savings_m.group(1) if savings_m else ""
+
+        # NEGATIVE = the money leaves the Mari Savings account (see docstring).
+        amount_cents = -self.to_cents(amount_m.group(2))
 
         if time_m:
             parsed_date = self.parse_date(time_m.group(1).strip())
@@ -177,26 +194,22 @@ class MaribankParser(BaseParser):
             parsed_date = email_dt.strftime("%Y-%m-%d")
             txn_time = ""
 
-        card_last4 = card_m.group(1) if card_m else ""
-        savings_last4 = savings_m.group(1) if savings_m else ""
-
-        notes = " | ".join(
-            p for p in [
-                f"MariCard *{card_last4}" if card_last4 else "",
-                f"From Mari Savings *{savings_last4}" if savings_last4 else "",
-            ] if p
+        payee = (
+            f"credit card ending ({card_last4})" if card_last4
+            else "credit card repayment"
         )
+        notes = f"To credit card *{card_last4}" if card_last4 else ""
 
-        payee = "MariCard Repayment"
         return {
             "date": parsed_date,
-            "amount": amount_cents,  # positive = inflow (see docstring)
+            "amount": amount_cents,  # negative = outflow from Mari Savings
             "payee_name": payee,
             "imported_id": self._content_id(
                 "mari-repay", parsed_date, amount_cents, payee, txn_time
             ),
             "notes": notes,
-            "account_last4": card_last4 or None,
+            # Route on the SOURCE account's ending, not the destination card.
+            "account_last4": savings_last4 or None,
             "cleared": True,
         }
 

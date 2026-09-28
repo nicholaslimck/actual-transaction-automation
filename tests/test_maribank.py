@@ -198,7 +198,7 @@ def test_auto_repayment_basic():
     assert txn["date"] == "2026-06-05"
     assert "From Mari Savings *7744" in txn["notes"]
     assert "May statement" in txn["notes"]
-    assert txn["account_last4"] is None
+    assert txn["account_last4"] == "1730"   # MariBank's own card
     assert txn["imported_id"].startswith("mari-repay:")
 
 
@@ -427,7 +427,8 @@ def test_strategy2_fallback_sgd():
 
 
 # ---------------------------------------------------------------------------
-# "Your credit card repayment is successful" (new repayment format)
+# "Your credit card repayment is successful" — MariBank bill payment FROM
+# Mari Savings to another bank's card: posted on the SOURCE (savings) account.
 # ---------------------------------------------------------------------------
 
 # Faithful excerpt of the real MariBank email — HTML-only body, with the CSS
@@ -455,7 +456,7 @@ MARI_REPAYMENT_HTML = """\
 
 
 def test_credit_card_repayment_real_email():
-    """Real-format email: positive amount, clean payee, date from body."""
+    """Real-format email: outflow posted on the savings account, clean payee."""
     email = make_email(
         subject="Your credit card repayment is successful",
         body_html=MARI_REPAYMENT_HTML,
@@ -465,11 +466,11 @@ def test_credit_card_repayment_real_email():
 
     assert len(txns) == 1
     txn = txns[0]
-    assert txn["amount"] == 200000           # POSITIVE = inflow to the card
-    assert txn["payee_name"] == "MariCard Repayment"
-    assert txn["date"] == "2026-09-26"        # from "26 Sep 2026 19:13"
-    assert txn["notes"] == "MariCard *6600 | From Mari Savings *7744"
-    assert txn["account_last4"] == "6600"
+    assert txn["amount"] == -200000         # NEGATIVE = outflow from savings
+    assert txn["payee_name"] == "credit card ending (6600)"
+    assert txn["date"] == "2026-09-26"       # from "26 Sep 2026 19:13"
+    assert txn["notes"] == "To credit card *6600"
+    assert txn["account_last4"] == "7744"    # SOURCE account (Mari Savings)
     assert txn["cleared"] is True
     assert txn["imported_id"].startswith("mari-repay:")
 
@@ -481,7 +482,7 @@ def test_credit_card_repayment_payee_is_clean():
         body_html=MARI_REPAYMENT_HTML,
     )
     payee = parser.parse(email)[0]["payee_name"]
-    assert payee == "MariCard Repayment"
+    assert payee == "credit card ending (6600)"
     assert "successful" not in payee.lower()
     assert "Mari Savings" not in payee
     assert len(payee) < 40
@@ -495,8 +496,8 @@ def test_credit_card_repayment_routed_by_body_signature():
     )
     txns = parser.parse(email)
     assert len(txns) == 1
-    assert txns[0]["amount"] == 200000
-    assert txns[0]["payee_name"] == "MariCard Repayment"
+    assert txns[0]["amount"] == -200000
+    assert txns[0]["payee_name"] == "credit card ending (6600)"
 
 
 def test_credit_card_repayment_deterministic_id():
@@ -532,9 +533,10 @@ def test_credit_card_repayment_missing_savings_still_parses():
     )
     txns = parser.parse(email)
     assert len(txns) == 1
-    assert txns[0]["amount"] == 123456
+    assert txns[0]["amount"] == -123456
     assert txns[0]["date"] == "2026-10-03"
-    assert txns[0]["notes"] == "MariCard *6600"
+    assert txns[0]["notes"] == "To credit card *6600"
+    assert txns[0]["account_last4"] is None   # no savings ending in body
 
 
 def test_repayment_format_does_not_break_card_spend():
@@ -565,3 +567,31 @@ def test_structured_payee_never_swallows_collapsed_body():
     assert len(txns) == 1
     assert txns[0]["payee_name"] == "SOME MERCHANT"
     assert txns[0]["amount"] == -1200
+
+
+def test_repayment_and_card_spend_route_to_different_accounts():
+    """account_last4 must separate the savings debit from MariBank card activity."""
+    spend = make_email(
+        subject="Awesome! Your payment is successful",
+        body_text=(
+            "You have made a payment to KCUTS on your credit card ending 1730.\n"
+            "Transaction Time:\n23 Sep 2026 15:59 SGT\nAmount:\nSGD 14.00"
+        ),
+    )
+    assert parser.parse(spend)[0]["account_last4"] == "1730"
+
+    repay = make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+    )
+    assert parser.parse(repay)[0]["account_last4"] == "7744"
+
+    auto = make_email(
+        subject="Your auto repayment is successful",
+        body_text=(
+            "Your auto repayment to your Mari Credit Card is successful. "
+            "Payment Amount: SGD 200.00 "
+            "Deducted from: Mari Savings Account ending 7744."
+        ),
+    )
+    assert parser.parse(auto)[0]["account_last4"] == "1730"

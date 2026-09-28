@@ -56,3 +56,11 @@ accounts:
     bank: maribank
     email_sender: "notifications@maribank.sg"
     actual_account_id: ""
+    account_filter: "1730"   # MariBank's own card (spends + auto-repayment)
+  # MariBank bill payments to ANOTHER bank's card debit the savings account;
+  # the maribank parser stamps account_last4 with the savings ending.
+  - name: "Maribank Savings"
+    bank: maribank
+    email_sender: "notifications@maribank.sg"
+    actual_account_id: ""
+    account_filter: "7744"
