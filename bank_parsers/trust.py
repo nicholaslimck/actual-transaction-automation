@@ -17,6 +17,24 @@ class TrustParser(BaseParser):
         0% FX fees! You've spent SGD <amt> at <merchant> with <card> on <date> <time>SGT.
     """
 
+    # Trust sends many non-transaction notifications from this same sender
+    # (statements, trade confirmations, stockback/cashback summaries, dividends,
+    # split-purchase notices, repayments). Only the two "…transaction successful"
+    # alerts are real transactions; without this gate every other one logs a
+    # spurious "Could not parse" warning on every pipeline run. Verified against
+    # the full mail history: those two are the ONLY subjects containing
+    # "transaction successful".
+    subject_include_keywords = ["transaction successful"]
+
+    # Trust sends many non-transaction notifications from this same sender
+    # (statements, trade confirmations, stockback/cashback summaries, dividends,
+    # split-purchase notices, repayments). Only the two "…transaction successful"
+    # alerts are real transactions; without this gate every other one logs a
+    # spurious "Could not parse" warning on every pipeline run. Verified against
+    # the whole mail history: those two are the ONLY subjects containing
+    # "transaction successful".
+    subject_include_keywords = ["transaction successful"]
+
     @property
     def bank_name(self) -> str:
         return "Trust Bank"
@@ -37,7 +55,7 @@ class TrustParser(BaseParser):
     def _parse_local(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent SGD ([0-9,.]+) at (.+?) on "
-            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT with (.+?)(?:\.|\s*$)",
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})(?:SGT|GMT\+08:00) with (.+?)(?:\.|\s*$)",
             text, re.IGNORECASE
         )
         if m:
@@ -58,7 +76,7 @@ class TrustParser(BaseParser):
     def _parse_overseas(self, text, msg_id):
         m = re.search(
             r"You(?:'ve| have) spent ([A-Z]{3}) ([0-9,.]+) using (.+?) at (.+?) on "
-            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT",
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})(?:SGT|GMT\+08:00)",
             text, re.IGNORECASE
         )
         if m:
@@ -108,7 +126,7 @@ class TrustParser(BaseParser):
         """
         m = re.search(
             r"You(?:'ve| have) spent SGD ([0-9,.]+) at (.+?) with (.+?) on "
-            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})SGT",
+            r"(\d{1,2} [A-Za-z]+ \d{4}) (\d{2}:\d{2})(?:SGT|GMT\+08:00)",
             text, re.IGNORECASE
         )
         if not m:

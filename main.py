@@ -45,18 +45,23 @@ def process_sender(
     dedup,
     dry_run: bool,
     lookback_days: int,
-) -> tuple[int, int]:
-    """Fetch, parse, dedup, import, and mark-seen for one email sender."""
+) -> tuple[int, int, int]:
+    """Fetch, parse, dedup, import, and mark-seen for one email sender.
+
+    Returns (added, updated, failed). `failed` counts account legs whose import
+    errored, so the caller can exit non-zero and surface a broken run instead of
+    reporting a silent success (a 2.5-day outage once hid behind "ok").
+    """
     emails = fetcher.fetch_unread_from(sender, lookback_days=lookback_days)
     if not emails:
-        return 0, 0
+        return 0, 0, 0
 
     # Preserve email→txns association so subject_filter can route per account
     email_txns = [(em, parser.parse(em)) for em in emails]
     if not any(txns for _, txns in email_txns):
-        return 0, 0
+        return 0, 0, 0
 
-    n_added, n_updated = 0, 0
+    n_added, n_updated, n_failed = 0, 0, 0
     attempted = False
     emails_routed: set[str] = set()   # email had >=1 txn routed to some account
     emails_failed: set[str] = set()   # >=1 routed leg for this email failed import
@@ -113,6 +118,7 @@ def process_sender(
                 logger.error("  -> import failed for %s: %s", acct_cfg["name"], reason)
                 for em, _ in acct_pairs:
                     emails_failed.add(em["raw_id"])
+                n_failed += 1
                 continue
             n_add = r.get("added", 0)
             n_upd = r.get("updated", 0)
@@ -129,9 +135,10 @@ def process_sender(
             if rid in emails_routed and rid not in emails_failed:
                 fetcher.mark_as_seen(rid)
 
-    return n_added, n_updated
+    return n_added, n_updated, n_failed
 
-def run_import(config: dict, dry_run: bool = False) -> None:
+def run_import(config: dict, dry_run: bool = False) -> int:
+    """Run one full pass. Returns the number of failed import legs (0 = clean)."""
     lb = config["email"].get("lookback_days", 3)
     fetcher = EmailFetcher(config)
     importer = ActualImporter(config)
@@ -139,10 +146,10 @@ def run_import(config: dict, dry_run: bool = False) -> None:
     if not dry_run:
         if not importer.verify_connection():
             logger.error("Cannot connect to Actual Budget")
-            return
+            return 1
         dedup.open()
     fetcher.connect()
-    total_added, total_updated = 0, 0
+    total_added, total_updated, total_failed = 0, 0, 0
     try:
         by = group_accounts_by_sender(config)
         for sender, accounts in by.items():
@@ -153,11 +160,13 @@ def run_import(config: dict, dry_run: bool = False) -> None:
                 if not parser:
                     continue
                 logger.info("Checking %s (%s)...", bank_name, sender)
-                n_added, n_updated = process_sender(sender, accounts, fetcher, parser, importer, dedup, dry_run, lb)
+                n_added, n_updated, n_failed = process_sender(sender, accounts, fetcher, parser, importer, dedup, dry_run, lb)
                 total_added += n_added
                 total_updated += n_updated
+                total_failed += n_failed
             except Exception as exc:
                 logger.error("Error processing %s (%s): %s", bank_name, sender, exc, exc_info=True)
+                total_failed += 1
                 continue
             elapsed = time.time() - t0
             logger.info("%s done in %.1fs", bank_name, elapsed)
@@ -166,6 +175,12 @@ def run_import(config: dict, dry_run: bool = False) -> None:
         if not dry_run:
             dedup.close()
     logger.info("Done: %d added, %d updated", total_added, total_updated)
+    if total_failed:
+        logger.error(
+            "%d import leg(s) failed — those emails stay unread and will retry",
+            total_failed,
+        )
+    return total_failed
 
 def run_test_parser(bank_arg):
     """Read a raw email JSON dict from stdin, run the matching parser, and print results."""
@@ -215,7 +230,10 @@ def main():
     if args.lookback is not None:
         config["email"]["lookback_days"] = args.lookback
     logger.info("Starting bank automation (log: %s)", log_file)
-    run_import(config, dry_run=args.dry_run)
+    failed = run_import(config, dry_run=args.dry_run)
+    if failed:
+        # Exit non-zero so cron/CI surface a broken run instead of a silent "ok".
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

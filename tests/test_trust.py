@@ -7,7 +7,7 @@ import bank_parsers.trust as trust_mod
 parser = TrustParser()
 
 
-def make_email(subject="", body_text="", body_html="", message_id="<test-msg-1>",
+def make_email(subject="Yay! Transaction successful", body_text="", body_html="", message_id="<test-msg-1>",
                email_date=None, raw_id="1"):
     return {
         "subject": subject,
@@ -29,7 +29,7 @@ def test_local_sgd_payment():
         "You've spent SGD 45.50 at Starbucks Singapore SG on 15 May 2026 "
         "10:30SGT with Visa Infinite ending 1234."
     )
-    email = make_email(subject="Trust Bank transaction", body_text=body)
+    email = make_email(body_text=body)
     txns = parser.parse(email)
 
     assert len(txns) == 1
@@ -51,7 +51,7 @@ def test_overseas_payment_monkeypatched_fx(monkeypatch):
         "You've spent USD 100.00 using Visa Infinite ending 1234 "
         "at Amazon US on 20 May 2026 08:00SGT"
     )
-    email = make_email(subject="Trust Bank transaction", body_text=body)
+    email = make_email(body_text=body)
     txns = parser.parse(email)
 
     assert len(txns) == 1
@@ -155,7 +155,7 @@ def test_overseas_account_last4(monkeypatch):
 
 def test_unparseable_body_returns_empty():
     email = make_email(
-        subject="Trust Bank",
+        subject="Yay! Transaction successful",
         body_text="Your account statement is ready. Please log in to view.",
     )
     txns = parser.parse(email)
@@ -267,3 +267,66 @@ def test_local_imported_id_recipe_unchanged():
     assert txn["imported_id"] == "trust-local:" + hashlib.sha256(
         raw.encode()
     ).hexdigest()[:16]
+
+
+# ---------------------------------------------------------------------------
+# H4 — timezone token: Trust switched "SGT" -> "GMT+08:00" (~29 Sep 2026),
+# which silently broke every Trust regex and dropped real transactions.
+# ---------------------------------------------------------------------------
+
+def test_local_sgd_gmt_offset_timezone_token():
+    """Local alert using the new GMT+08:00 token (real sample, 1 Oct 2026)."""
+    body = (
+        "You've spent SGD 12.42 at Grab* 7-C8JJE35JGK3UJJ Singapore SG on "
+        "1 Oct 2026 11:52GMT+08:00 with Freedom credit card. "
+        "You'll receive estimated S$0.37 stockback*."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -1242
+    assert txns[0]["date"] == "2026-10-01"
+    assert txns[0]["payee_name"] == "Grab*"
+    assert txns[0]["imported_id"].startswith("trust-local:")
+
+
+def test_overseas_gmt_offset_timezone_token(monkeypatch):
+    """Overseas alert using GMT+08:00 (real sample, 30 Sep 2026)."""
+    monkeypatch.setattr(trust_mod, "sgd_from", lambda cur, cents: (int(cents * 0.3134), 0.3134))
+    body = (
+        "0% FX fees! You've spent MYR 510.00 using Freedom credit card at "
+        "TNG EWALLET ECOM 3 KUALA LUMPUR MY on 30 Sep 2026 11:51GMT+08:00. "
+        "Not you? Alert us via Trust App."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1
+    assert txns[0]["amount"] == -int(51000 * 0.3134)
+    assert txns[0]["date"] == "2026-09-30"
+    assert txns[0]["payee_name"].startswith("TNG EWALLET")
+    assert txns[0]["cleared"] is False
+
+
+def test_old_sgt_token_still_parses():
+    """The previous SGT token must keep working (historical emails)."""
+    body = (
+        "You've spent SGD 45.50 at Starbucks Singapore SG on 15 May 2026 "
+        "10:30SGT with Visa Infinite ending 1234."
+    )
+    txns = parser.parse(make_email(body_text=body))
+    assert len(txns) == 1 and txns[0]["amount"] == -4550
+
+
+def test_non_transaction_subject_is_skipped():
+    """Non-transaction Trust mail must not reach the parser, even if the body
+    looks transactional — otherwise every run logs a spurious warning."""
+    txn_body = (
+        "You've spent SGD 9.99 at Somewhere SG on 1 Oct 2026 "
+        "10:00GMT+08:00 with Freedom credit card."
+    )
+    for subj in (
+        "Sweet! Your savings account eStatement is ready ✅",
+        "✅ Your trade confirmation is ready!",
+        "Freedom credit card Stockback reward has been credited 🥳",
+        "Repayment successful 😁",
+        "Your credit card statement is in 😁",
+    ):
+        assert parser.parse(make_email(subject=subj, body_text=txn_body)) == []

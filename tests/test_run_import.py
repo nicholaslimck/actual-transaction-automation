@@ -51,7 +51,7 @@ def test_success_records_and_marks_seen():
     fetcher = FakeFetcher([make_email("msg1")])
     dedup = FakeDedup()
     importer = FakeImporter({"added": 1, "updated": 0})
-    n_add, n_upd = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
+    n_add, n_upd, n_failed = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
     assert n_add == 1
     assert n_upd == 0
     assert len(dedup.recorded) == 1
@@ -100,7 +100,7 @@ def test_no_emails_returns_zero():
     fetcher = FakeFetcher([])
     dedup = FakeDedup()
     importer = FakeImporter({"added": 0, "updated": 0})
-    n_add, n_upd = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
+    n_add, n_upd, n_failed = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
     assert n_add == 0 and n_upd == 0
 
 
@@ -186,3 +186,20 @@ def test_group_accounts_by_sender_filters_incomplete():
     result = group_accounts_by_sender(config)
     assert set(result.keys()) == {"a@b.com"}
     assert len(result["a@b.com"]) == 2
+
+
+def test_import_failure_reported_in_failed_count():
+    """A failed import must be counted so run_import can exit non-zero."""
+    fetcher = FakeFetcher([make_email("msg1")])
+    dedup = FakeDedup()
+    importer = FakeImporter({"error": "bad"})
+    n_add, n_upd, n_failed = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
+    assert (n_add, n_upd, n_failed) == (0, 0, 1)
+
+
+def test_success_reports_zero_failures():
+    fetcher = FakeFetcher([make_email("msg1")])
+    dedup = FakeDedup()
+    importer = FakeImporter({"added": 1, "updated": 0})
+    n_add, n_upd, n_failed = process_sender("sender@bank.com", ACCOUNTS, fetcher, FakeParser(TXNS), importer, dedup, dry_run=False, lookback_days=3)
+    assert (n_add, n_upd, n_failed) == (1, 0, 0)
