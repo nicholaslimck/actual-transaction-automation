@@ -9,6 +9,10 @@ _NPM_BIN = os.path.expanduser("~/.npm-global/bin")
 
 ACTUAL_CLI = os.path.join(_NPM_BIN, "actual")
 
+# ponytail: 90s is headroom only. Normal legs finish in 1-2s; a hit means the CLI
+# stalled, and the retry in _run is what actually heals a transient stall.
+_CLI_TIMEOUT = 90
+
 
 class ActualImporter:
     """Pushes transactions into Actual Budget via the official CLI."""
@@ -99,11 +103,14 @@ class ActualImporter:
         full_cmd = [ACTUAL_CLI, *args]
         logger.debug("Running: %s", " ".join(full_cmd))
 
-        return subprocess.run(
-            full_cmd,
-            input=input_data,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
+        # subprocess.run kills the child on timeout, so a retry can't orphan a
+        # hung CLI holding the budget lock. One retry: a stalled CLI usually
+        # succeeds on the second try (the 15-min cron cadence is the backstop).
+        try:
+            return subprocess.run(full_cmd, input=input_data, capture_output=True,
+                                  text=True, timeout=_CLI_TIMEOUT, env=env)
+        except subprocess.TimeoutExpired:
+            logger.warning("CLI timed out after %ss, retrying once: %s",
+                           _CLI_TIMEOUT, " ".join(full_cmd))
+            return subprocess.run(full_cmd, input=input_data, capture_output=True,
+                                  text=True, timeout=_CLI_TIMEOUT, env=env)

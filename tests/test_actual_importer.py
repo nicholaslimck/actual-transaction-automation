@@ -150,3 +150,35 @@ def test_sanitize_preserves_all_cli_fields(importer):
     result = ActualImporter._sanitize([txn])
     assert len(result) == 1
     assert set(result[0].keys()) == ActualImporter._CLI_FIELDS
+
+
+# ---------------------------------------------------------------------------
+# _run — one retry on CLI timeout (the Oct-2026 stall: a hung `actual` CLI)
+# ---------------------------------------------------------------------------
+
+def test_run_retries_once_then_returns(importer, monkeypatch):
+    calls = []
+
+    def flaky(cmd, **kw):
+        calls.append(cmd)
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 90))
+        return _completed(json.dumps([[], []]))
+
+    monkeypatch.setattr("actual_importer.subprocess.run", flaky)
+    r = importer._run(["budgets", "list"])
+    assert r.returncode == 0
+    assert len(calls) == 2
+
+
+def test_run_gives_up_after_two_timeouts(importer, monkeypatch):
+    calls = []
+
+    def always_hang(cmd, **kw):
+        calls.append(cmd)
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 90))
+
+    monkeypatch.setattr("actual_importer.subprocess.run", always_hang)
+    with pytest.raises(subprocess.TimeoutExpired):
+        importer._run(["budgets", "list"])
+    assert len(calls) == 2
