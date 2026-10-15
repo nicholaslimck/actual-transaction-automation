@@ -595,3 +595,107 @@ def test_repayment_and_card_spend_route_to_different_accounts():
         ),
     )
     assert parser.parse(auto)[0]["account_last4"] == "1730"
+
+
+# ---------------------------------------------------------------------------
+# "You have made a payment on <MERCHANT>." — card spend with NO card number in
+# the body (e.g. "Awesome! Your Shopee payment is successful", HTML-only).
+# Before the account_filter split this posted to Maribank Credit because the
+# entry had no filter; once Maribank Credit gained account_filter "1730" the
+# txn carried account_last4=None, matched no entry, and was silently dropped.
+# ---------------------------------------------------------------------------
+
+# Faithful excerpt of the real MariBank Shopee alert (HTML-only).
+MARI_SHOPEE_HTML = """\
+<html><head><style type="text/css">
+@media (max-width: 600px) { .max-600px_px-16px { padding-left: 16px !important } }
+</style></head><body>
+  <span>Maribank</span>
+  <div>You have made a payment on Shopee. Your Shopee Coins are on the way and
+       will be credited to your Shopee account once the transaction is confirmed.
+       Transaction Time: 13 Oct 2026 14:08 SGT Amount: SGD 17.20 If this was an
+       unauthorised request, call our hotline immediately.</div>
+  <div>In-app Live Chat +6569958688 MariBank Singapore Pte Ltd (UEN: 202106516C)
+       This is a system generated message, please do not reply to this email.</div>
+</body></html>
+"""
+
+
+def test_shopee_card_spend_routes_to_maribank_credit():
+    """Regression: no card number in body -> must still route to the card."""
+    email = make_email(
+        subject="Awesome! Your Shopee payment is successful",
+        body_html=MARI_SHOPEE_HTML,
+        email_date=datetime(2026, 10, 13, 6, 8, 33, tzinfo=timezone.utc),
+    )
+    txns = parser.parse(email)
+
+    assert len(txns) == 1
+    txn = txns[0]
+    assert txn["amount"] == -1720                      # outflow
+    assert txn["payee_name"] == "Shopee"               # not the next sentence
+    assert txn["date"] == "2026-10-13"                 # from "Transaction Time"
+    assert txn["account_last4"] == "1730"              # Maribank Credit filter
+    assert txn["cleared"] is True
+    assert txn["imported_id"].startswith("mari:")
+
+
+def test_shopee_payee_never_swallows_the_following_sentence():
+    """The payee must stop at the first period, not absorb the email body."""
+    email = make_email(
+        subject="Awesome! Your Shopee payment is successful",
+        body_html=MARI_SHOPEE_HTML,
+    )
+    payee = parser.parse(email)[0]["payee_name"]
+    assert payee == "Shopee"
+    assert "Coins" not in payee
+    assert "credited" not in payee
+    assert len(payee) < 40
+
+
+def test_shopee_same_day_two_amounts_have_distinct_ids():
+    """Two same-day Shopee payments must not collide on imported_id."""
+    a = make_email(
+        subject="Awesome! Your Shopee payment is successful",
+        body_html=MARI_SHOPEE_HTML.replace("SGD 17.20", "SGD 5.76"),
+        email_date=datetime(2026, 10, 13, 6, 11, 14, tzinfo=timezone.utc),
+    )
+    b = make_email(
+        subject="Awesome! Your Shopee payment is successful",
+        body_html=MARI_SHOPEE_HTML,
+        email_date=datetime(2026, 10, 13, 6, 8, 33, tzinfo=timezone.utc),
+    )
+    id_a = parser.parse(a)[0]["imported_id"]
+    id_b = parser.parse(b)[0]["imported_id"]
+    assert id_a != id_b
+    assert id_a == parser.parse(a)[0]["imported_id"]     # deterministic
+
+
+def test_shopee_notes_name_the_card():
+    email = make_email(
+        subject="Awesome! Your Shopee payment is successful",
+        body_html=MARI_SHOPEE_HTML,
+    )
+    assert parser.parse(email)[0]["notes"] == "MariCard *1730"
+
+
+def test_payment_on_phrase_does_not_break_payment_to_phrase():
+    """"payment to <M> on your credit card ending NNNN" still wins (real card)."""
+    body = (
+        "You have made a payment to KCUTS on your credit card ending 9999.\n"
+        "Transaction Time:\n23 Sep 2026 15:59 SGT\nAmount:\nSGD 14.00"
+    )
+    txn = parser.parse(make_email(subject="Awesome! Your payment is successful",
+                                  body_text=body))[0]
+    assert txn["payee_name"] == "KCUTS"
+    assert txn["account_last4"] == "9999"
+
+
+def test_repayment_body_is_not_mistaken_for_a_card_spend():
+    """The 'payment on' rule must not hijack repayment bodies."""
+    txn = parser.parse(make_email(
+        subject="Your credit card repayment is successful",
+        body_html=MARI_REPAYMENT_HTML,
+    ))[0]
+    assert txn["account_last4"] == "7744"       # still the savings debit
+    assert txn["amount"] == -200000

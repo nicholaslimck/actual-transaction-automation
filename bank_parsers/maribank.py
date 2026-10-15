@@ -225,6 +225,9 @@ class MaribankParser(BaseParser):
 
         Pattern (foreign):
           ... Amount: EUR <AMOUNT>
+
+        Pattern (card spend with NO card number in the body):
+          You have made a payment on <MERCHANT>.
         """
         # Strategy 1: Full structured format
         m = re.search(
@@ -244,6 +247,29 @@ class MaribankParser(BaseParser):
                 date_str=date_m.group(1).strip(),
                 card_m=card_m,
                 txn_time=date_m.group(2) if date_m.lastindex >= 2 else "",
+            )
+            if txn:
+                return txn
+
+        # Strategy 1b: card spend that carries NO card number in the body —
+        #   "You have made a payment on <MERCHANT>."  (e.g. "Awesome! Your
+        #   Shopee payment is successful"). The alert omits the card ending, so
+        #   stamp MARI_CARD_LAST4 exactly as _parse_auto_repayment does:
+        #   account_last4=None matches no account_filter in config, so the
+        #   transaction would be silently dropped instead of posted.
+        on_m = re.search(
+            r"made\s+a\s+payment\s+on\s+(?!your\b)([^.]+)\.",
+            text, re.IGNORECASE,
+        )
+        if on_m and date_m and amount_m:
+            txn = self._build_txn(
+                cur=amount_m.group(1).upper(),
+                amount_str=amount_m.group(2),
+                merchant=on_m.group(1).strip(),
+                date_str=date_m.group(1).strip(),
+                card_m=None,
+                txn_time=date_m.group(2) if date_m.lastindex and date_m.lastindex >= 2 else "",
+                default_card_last4=self.MARI_CARD_LAST4,
             )
             if txn:
                 return txn
@@ -271,7 +297,8 @@ class MaribankParser(BaseParser):
         return None
 
     def _build_txn(self, cur: str, amount_str: str, merchant: str, date_str: str,
-                   card_m, txn_time: str) -> dict | None:
+                   card_m, txn_time: str,
+                   default_card_last4: str | None = None) -> dict | None:
         """Build transaction dict from parsed fields, handling FX conversion.
 
         Follows the Trust parser pattern: foreign currencies are converted via
@@ -299,9 +326,8 @@ class MaribankParser(BaseParser):
 
         parsed_date = self.parse_date(date_str)
 
-        card_note = ""
-        if card_m:
-            card_note = f"MariCard *{card_m.group(1)}"
+        card_last4 = card_m.group(1) if card_m else default_card_last4
+        card_note = f"MariCard *{card_last4}" if card_last4 else ""
 
         notes_parts = [p for p in [card_note, fx_note] if p]
         notes = " | ".join(notes_parts)
@@ -317,6 +343,6 @@ class MaribankParser(BaseParser):
                 amount_key=f"{cur}{amount_str}" if cur != "SGD" else None,
             ),
             "notes": notes,
-            "account_last4": card_m.group(1) if card_m else None,
+            "account_last4": card_last4,
             "cleared": cleared,
         }
