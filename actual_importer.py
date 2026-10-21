@@ -2,6 +2,7 @@ import subprocess
 import json
 import logging
 import os
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,30 @@ ACTUAL_CLI = os.path.join(_NPM_BIN, "actual")
 # ponytail: 90s is headroom only. Normal legs finish in 1-2s; a hit means the CLI
 # stalled, and the retry in _run is what actually heals a transient stall.
 _CLI_TIMEOUT = 90
+
+# The CLI reports an unreachable server as "Authentication failed: network-failure".
+# Those blips last seconds (LAN/tunnel hiccups), so retrying inside the run beats
+# waiting a full 15-min cron cycle — and avoids a false failure alert.
+_NET_ATTEMPTS = 3
+_NET_BACKOFF = 20
+_MAX_TIMEOUT_ATTEMPTS = 2
+_NET_ERROR_MARKERS = (
+    "network-failure",
+    "econnrefused",
+    "etimedout",
+    "enotfound",
+    "eai_again",
+    "socket hang up",
+    "fetch failed",
+)
+
+
+def _is_transient_network(result: subprocess.CompletedProcess) -> bool:
+    """True when a failed CLI call looks like a transient connection problem."""
+    if result.returncode == 0:
+        return False
+    blob = f"{result.stderr or ''}{result.stdout or ''}".lower()
+    return any(marker in blob for marker in _NET_ERROR_MARKERS)
 
 
 class ActualImporter:
@@ -104,13 +129,26 @@ class ActualImporter:
         logger.debug("Running: %s", " ".join(full_cmd))
 
         # subprocess.run kills the child on timeout, so a retry can't orphan a
-        # hung CLI holding the budget lock. One retry: a stalled CLI usually
-        # succeeds on the second try (the 15-min cron cadence is the backstop).
-        try:
-            return subprocess.run(full_cmd, input=input_data, capture_output=True,
-                                  text=True, timeout=_CLI_TIMEOUT, env=env)
-        except subprocess.TimeoutExpired:
-            logger.warning("CLI timed out after %ss, retrying once: %s",
-                           _CLI_TIMEOUT, " ".join(full_cmd))
-            return subprocess.run(full_cmd, input=input_data, capture_output=True,
-                                  text=True, timeout=_CLI_TIMEOUT, env=env)
+        # hung CLI holding the budget lock. Timeouts get one extra attempt; a
+        # transient connection failure ("network-failure") gets up to
+        # _NET_ATTEMPTS with backoff. Both are safe to replay: imports dedupe on
+        # imported_id server-side.
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                result = subprocess.run(full_cmd, input=input_data, capture_output=True,
+                                        text=True, timeout=_CLI_TIMEOUT, env=env)
+            except subprocess.TimeoutExpired:
+                if attempt >= _MAX_TIMEOUT_ATTEMPTS:
+                    raise
+                logger.warning("CLI timed out after %ss, retrying once: %s",
+                               _CLI_TIMEOUT, " ".join(full_cmd))
+                continue
+
+            if attempt >= _NET_ATTEMPTS or not _is_transient_network(result):
+                return result
+            logger.warning("Transient Actual connection failure (attempt %d/%d), "
+                           "retrying in %ss: %s", attempt, _NET_ATTEMPTS, _NET_BACKOFF,
+                           (result.stderr or "").strip())
+            time.sleep(_NET_BACKOFF)

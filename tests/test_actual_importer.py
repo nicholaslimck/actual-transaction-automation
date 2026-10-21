@@ -182,3 +182,54 @@ def test_run_gives_up_after_two_timeouts(importer, monkeypatch):
     with pytest.raises(subprocess.TimeoutExpired):
         importer._run(["budgets", "list"])
     assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# _run — transient connection failures retry with backoff (Oct-2026 LAN blips)
+# ---------------------------------------------------------------------------
+
+_NET_FAIL = "Error: Authentication failed: network-failure"
+
+
+def test_run_retries_transient_network_failure_then_succeeds(importer, monkeypatch):
+    calls, sleeps = [], []
+
+    def flaky(cmd, **kw):
+        calls.append(cmd)
+        if len(calls) < 3:
+            return _completed("", returncode=1, stderr=_NET_FAIL)
+        return _completed(json.dumps([[], []]))
+
+    monkeypatch.setattr("actual_importer.subprocess.run", flaky)
+    monkeypatch.setattr("actual_importer.time.sleep", lambda s: sleeps.append(s))
+    r = importer._run(["budgets", "list"])
+    assert r.returncode == 0
+    assert len(calls) == 3
+    assert sleeps == [20, 20]
+
+
+def test_run_gives_up_after_three_network_failures(importer, monkeypatch):
+    calls = []
+
+    def always_offline(cmd, **kw):
+        calls.append(cmd)
+        return _completed("", returncode=1, stderr=_NET_FAIL)
+
+    monkeypatch.setattr("actual_importer.subprocess.run", always_offline)
+    monkeypatch.setattr("actual_importer.time.sleep", lambda s: None)
+    r = importer._run(["budgets", "list"])
+    assert r.returncode == 1
+    assert len(calls) == 3
+
+
+def test_run_does_not_retry_non_transient_error(importer, monkeypatch):
+    calls = []
+
+    def bad_args(cmd, **kw):
+        calls.append(cmd)
+        return _completed("", returncode=1, stderr="error: unknown option --nope")
+
+    monkeypatch.setattr("actual_importer.subprocess.run", bad_args)
+    r = importer._run(["budgets", "list"])
+    assert r.returncode == 1
+    assert len(calls) == 1
